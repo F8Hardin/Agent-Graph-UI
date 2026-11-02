@@ -1,0 +1,16 @@
+{
+    "name": "AgentConsole.Transport",
+    "rootNamespace": "AgentConsole.Transport",
+    "references": [
+        "AgentConsole.Domain"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

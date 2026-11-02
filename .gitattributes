@@ -1,0 +1,48 @@
+# Normalise line endings; Unity's own YAML stays text so it stays diffable.
+* text=auto
+
+# ── Unity YAML: text, with Unity's smart merge where configured ────────────
+*.unity     text eol=lf merge=unityyamlmerge
+*.prefab    text eol=lf merge=unityyamlmerge
+*.asset     text eol=lf merge=unityyamlmerge
+*.mat       text eol=lf merge=unityyamlmerge
+*.anim      text eol=lf merge=unityyamlmerge
+*.controller text eol=lf merge=unityyamlmerge
+*.physicMaterial text eol=lf merge=unityyamlmerge
+*.meta      text eol=lf
+*.asmdef    text eol=lf
+*.asmref    text eol=lf
+*.cs        text eol=lf diff=csharp
+*.shader    text eol=lf
+*.hlsl      text eol=lf
+*.cginc     text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+
+# ── Git LFS: binaries only. Unity YAML above must NOT go through LFS, or
+#    every scene change becomes an opaque blob. ─────────────────────────────
+*.png   filter=lfs diff=lfs merge=lfs -text
+*.jpg   filter=lfs diff=lfs merge=lfs -text
+*.jpeg  filter=lfs diff=lfs merge=lfs -text
+*.gif   filter=lfs diff=lfs merge=lfs -text
+*.psd   filter=lfs diff=lfs merge=lfs -text
+*.tga   filter=lfs diff=lfs merge=lfs -text
+*.tif   filter=lfs diff=lfs merge=lfs -text
+*.tiff  filter=lfs diff=lfs merge=lfs -text
+*.exr   filter=lfs diff=lfs merge=lfs -text
+*.hdr   filter=lfs diff=lfs merge=lfs -text
+*.fbx   filter=lfs diff=lfs merge=lfs -text
+*.obj   filter=lfs diff=lfs merge=lfs -text
+*.blend filter=lfs diff=lfs merge=lfs -text
+*.wav   filter=lfs diff=lfs merge=lfs -text
+*.mp3   filter=lfs diff=lfs merge=lfs -text
+*.ogg   filter=lfs diff=lfs merge=lfs -text
+*.mp4   filter=lfs diff=lfs merge=lfs -text
+*.mov   filter=lfs diff=lfs merge=lfs -text
+*.ttf   filter=lfs diff=lfs merge=lfs -text
+*.otf   filter=lfs diff=lfs merge=lfs -text
+*.dll   filter=lfs diff=lfs merge=lfs -text
+*.so    filter=lfs diff=lfs merge=lfs -text
+*.dylib filter=lfs diff=lfs merge=lfs -text
+*.aar   filter=lfs diff=lfs merge=lfs -text
+*.bundle filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,25 @@
+{
+    "name": "AgentConsole.Editor",
+    "rootNamespace": "AgentConsole.Editor",
+    "references": [
+        "AgentConsole.Domain",
+        "AgentConsole.View",
+        "AgentConsole.App",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
