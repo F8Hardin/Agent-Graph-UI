@@ -31,6 +31,8 @@ namespace AgentConsole.View
         [Tooltip("Higher = snappier. Used for pivot and distance.")]
         [SerializeField, Min(0.1f)] private float easeK = 2.6f;
         [SerializeField, Min(0.1f)] private float orbitEaseK = 12f;
+        [Tooltip("Distance easing while the wheel is turning. Higher = the zoom follows the wheel more tightly.")]
+        [SerializeField, Min(0.1f)] private float zoomEaseK = 9f;
 
         [Header("Input")]
         [SerializeField] private float orbitDegreesPerPixel = 0.22f;
@@ -54,6 +56,10 @@ namespace AgentConsole.View
         private bool _locked;
         private bool _dragging;
         private bool _panning;
+        private bool _nodeDrag;
+        private float _frameDist = 30f;   // the lock's own framing distance, before the user's zoom
+        private float _zoomMul = 1f;      // the wheel's multiplier on top of it while locked
+        private float _zoomUntil;
         private bool _hasPath;
         private Vector3 _pathA, _pathB;
         private float _pathR;
@@ -105,11 +111,15 @@ namespace AgentConsole.View
             }
         }
 
-        public void SetLocked(bool locked)
+public void SetLocked(bool locked)
         {
             if (_locked == locked) return;
             _locked = locked;
-            if (_locked) ReapplyFocus();
+            if (_locked)
+            {
+                _zoomMul = 1f; // locking again means "frame it for me": start from the lock's own distance
+                ReapplyFocus();
+            }
             LockChanged?.Invoke(_locked);
         }
 
@@ -118,6 +128,7 @@ namespace AgentConsole.View
         /// <summary>Frame the whole graph (eased). Always remembered; only applied while locked.</summary>
         public void Fit()
         {
+            _zoomMul = 1f; // the Fit button is an explicit "reset the view"; a run ending (OnFit) keeps the user's zoom
             OnFit();
             if (!_locked) ApplyFit();
         }
@@ -146,7 +157,8 @@ namespace AgentConsole.View
         private void ApplyFit()
         {
             _pivotT = Vector3.zero;
-            _distT = FrameDistance(_graph != null ? _graph.BoundingRadius : 10f) * fitMargin;
+            _frameDist = FrameDistance(_graph != null ? _graph.BoundingRadius : 10f) * fitMargin;
+            _distT = Mathf.Clamp(_frameDist * _zoomMul, minDistance, maxDistance);
         }
 
         private void ApplyPath()
@@ -155,7 +167,8 @@ namespace AgentConsole.View
             _pivotT = (_pathA + _pathB) * 0.5f;
             float bound = _graph != null ? _graph.BoundingRadius : 10f;
             float half = Mathf.Max((_pathB - _pathA).magnitude * 0.5f + _pathR + pathPadding, bound * minFrameFraction);
-            _distT = FrameDistance(half);
+            _frameDist = FrameDistance(half);
+            _distT = Mathf.Clamp(_frameDist * _zoomMul, minDistance, maxDistance);
         }
 
         /// <summary>Distance at which a sphere of this radius fits the narrower of the two FOV axes.</summary>
@@ -174,9 +187,10 @@ namespace AgentConsole.View
             ReadInput();
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
             float k = 1f - Mathf.Exp(-easeK * dt);
+            float kz = Time.unscaledTime < _zoomUntil ? 1f - Mathf.Exp(-Mathf.Max(easeK, zoomEaseK) * dt) : k;
             float ko = 1f - Mathf.Exp(-orbitEaseK * dt);
             _pivot = Vector3.Lerp(_pivot, _pivotT, k);
-            _dist = Mathf.Lerp(_dist, _distT, k);
+            _dist = Mathf.Lerp(_dist, _distT, kz);
             _yaw = Mathf.Lerp(_yaw, _yawT, ko);
             _pitch = Mathf.Lerp(_pitch, _pitchT, ko);
         }
@@ -202,7 +216,22 @@ namespace AgentConsole.View
             Mouse m = Mouse.current;
             if (m == null) return;
 
-            if (m.leftButton.wasPressedThisFrame || m.rightButton.wasPressedThisFrame)
+            // Who owns a press: a left press on a sphere grabs that node; anywhere else it orbits. A press that
+            // lands on the UI belongs to the UI. The graph does the picking, the rig only arbitrates.
+            if (m.leftButton.wasPressedThisFrame)
+            {
+                bool overUi = PointerOverUi();
+                if (!overUi && _graph != null && _graph.BeginDrag(PointerRay(m)))
+                {
+                    _nodeDrag = true;
+                    _dragging = false;
+                }
+                else
+                {
+                    _dragging = !overUi;
+                }
+            }
+            else if (m.rightButton.wasPressedThisFrame && !_nodeDrag)
             {
                 _dragging = !PointerOverUi();
             }
@@ -210,7 +239,20 @@ namespace AgentConsole.View
             {
                 _panning = !PointerOverUi();
             }
-            if (!m.leftButton.isPressed && !m.rightButton.isPressed) _dragging = false;
+
+            if (_nodeDrag)
+            {
+                if (m.leftButton.isPressed)
+                {
+                    _graph.DragTo(PointerRay(m));
+                }
+                else
+                {
+                    _graph.EndDrag();
+                    _nodeDrag = false;
+                }
+            }
+            if (_nodeDrag || (!m.leftButton.isPressed && !m.rightButton.isPressed)) _dragging = false;
             if (!m.middleButton.isPressed) _panning = false;
 
             Vector2 delta = m.delta.ReadValue();
@@ -220,7 +262,15 @@ namespace AgentConsole.View
                 _pitchT = Mathf.Clamp(_pitchT - delta.y * orbitDegreesPerPixel, -85f, 85f);
             }
 
-            if (_locked) return; // the lock owns pivot and distance
+            // The wheel works locked and unlocked. Locked, it scales the lock's own distance rather than
+            // replacing it, so the next auto-frame keeps the user's zoom instead of snapping it away.
+            float scroll = m.scroll.ReadValue().y;
+            if (Mathf.Abs(scroll) > 0.01f && !_nodeDrag && !PointerOverUi())
+            {
+                ZoomBy(scroll);
+            }
+
+            if (_locked) return; // the lock owns the pivot
 
             if (_panning)
             {
@@ -228,11 +278,29 @@ namespace AgentConsole.View
                 Vector3 shift = (rot * Vector3.right) * (-delta.x) + (rot * Vector3.up) * (-delta.y);
                 _pivotT += shift * (_dist * panPerPixel);
             }
+        }
 
-            float scroll = m.scroll.ReadValue().y;
-            if (Mathf.Abs(scroll) > 0.01f && !PointerOverUi())
+        private Ray PointerRay(Mouse m)
+        {
+            return viewCamera.ScreenPointToRay(m.position.ReadValue());
+        }
+
+        /// <summary>Wheel input to a zoom. Windows reports +-120 per notch, other devices small fractions, so both are normalised.</summary>
+        private void ZoomBy(float scroll)
+        {
+            float steps = Mathf.Abs(scroll) >= 10f ? scroll / 120f : scroll;
+            steps = Mathf.Clamp(steps, -3f, 3f);
+            float factor = Mathf.Exp(-steps * zoomStep); // wheel up = closer
+            _zoomUntil = Time.unscaledTime + 0.6f;
+            if (_locked)
             {
-                _distT = Mathf.Clamp(_distT * Mathf.Exp(-Mathf.Sign(scroll) * zoomStep), minDistance, maxDistance);
+                float basis = Mathf.Max(_frameDist, 0.01f);
+                _zoomMul = Mathf.Clamp(_zoomMul * factor, minDistance / basis, maxDistance / basis);
+                _distT = Mathf.Clamp(_frameDist * _zoomMul, minDistance, maxDistance);
+            }
+            else
+            {
+                _distT = Mathf.Clamp(_distT * factor, minDistance, maxDistance);
             }
         }
 

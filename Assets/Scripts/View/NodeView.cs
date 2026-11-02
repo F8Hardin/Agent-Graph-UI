@@ -23,6 +23,14 @@ namespace AgentConsole.View
         private static readonly int IdAlpha = Shader.PropertyToID("_Alpha");
         private static readonly int IdFill = Shader.PropertyToID("_Fill");
         private static readonly int IdFace = Shader.PropertyToID("_FaceColor");
+        private static readonly int IdBorder = Shader.PropertyToID("_BorderColor");
+        private static readonly int IdBorderHot = Shader.PropertyToID("_BorderHotColor");
+
+        // How far the fill is mixed toward the page background to get the border colour. Mid-range of 45-60%.
+        private const float BorderMix = 0.52f;
+        // Light themes have a pale background, so mixing toward it would LIGHTEN the border. There the same
+        // fraction is mixed toward black instead, so the border is a darker shade of the node on both.
+        private const float BorderMixLight = 0.45f;
 
         private readonly Transform _label;
         private readonly TextMeshPro _text;
@@ -43,6 +51,9 @@ namespace AgentConsole.View
         public readonly Transform Root;
         public readonly float Radius;
 
+        /// <summary>Picking target for drags. Unit sphere collider on the body, so the body's scale gives it the node radius.</summary>
+        public readonly SphereCollider Collider;
+
         public NodeView(GraphNode node, float radius, Transform parent, Mesh sphere, Material template, TMP_FontAsset font)
         {
             Node = node;
@@ -62,6 +73,8 @@ namespace AgentConsole.View
             mr.receiveShadows = false;
             _bodyMat = new Material(template) { name = "NodeSphere " + node.Label };
             mr.sharedMaterial = _bodyMat;
+            Collider = body.AddComponent<SphereCollider>();
+            Collider.radius = 0.5f; // the unit sphere mesh has radius 0.5; the body's scale makes it `radius`
 
             GameObject lab = new GameObject("Label");
             _label = lab.transform;
@@ -129,14 +142,17 @@ namespace AgentConsole.View
             return sb.ToString();
         }
 
-        public void ApplyTheme(ThemeTokens t)
+public void ApplyTheme(ThemeTokens t)
         {
             _t = t;
+            // The BASE colour is the plain tier colour. Memory and error tints live in the HOT colour, which the
+            // shader blends in by Glow, so they pulse in and decay with the glow instead of sticking to the node.
+            // A node that is down stays recognisable by its lower alpha, dim label and down-coloured edges.
             Color b = Node.Tier == NodeTier.Agent ? t.NAgent
-                : Node.Tier == NodeTier.Server ? (Node.IsDown ? t.Bad : Node.IsMemory ? t.Mem : t.NSrv)
-                : (Node.IsMemory ? t.Mem : t.NTool);
-            Color hot = Node.IsMemory ? t.Mem : Node.Tier == NodeTier.Agent ? t.NHot : t.Flow;
-            // Bright base colours (the agent, memory) get a denser fill so dark ink can read on them, like the
+                : Node.Tier == NodeTier.Server ? t.NSrv
+                : t.NTool;
+            Color hot = Node.IsDown ? t.Bad : Node.IsMemory ? t.Mem : Node.Tier == NodeTier.Agent ? t.NHot : t.Flow;
+            // Bright base colours (the agent) get a denser fill so dark ink can read on them, like the
             // prototype's solid pills; dim ones stay glassy with light ink. Ink is whichever of fg/bg contrasts
             // more with the sphere's EFFECTIVE backdrop (its fill blended over the page), so one rule serves
             // black and white terminals.
@@ -148,9 +164,19 @@ namespace AgentConsole.View
             _inkGlow = BestInk(t, litBackdrop);
             _bodyMat.SetColor(IdBase, b);
             _bodyMat.SetColor(IdHot, hot);
+            _bodyMat.SetColor(IdBorder, BorderOf(t, b));
+            _bodyMat.SetColor(IdBorderHot, BorderOf(t, hot));
             _bodyMat.SetFloat(IdFill, fill);
             _bodyMat.SetFloat(IdAlpha, _down ? 0.5f : 1f);
             _lastGlow = -1f;
+        }
+
+        /// <summary>A darker shade of the node's own colour: the fill mixed toward the background (dark themes) or toward black (light themes).</summary>
+        private static Color BorderOf(ThemeTokens t, Color fill)
+        {
+            Color c = t.Dark ? Color.Lerp(fill, t.Bg, BorderMix) : Color.Lerp(fill, Color.black, BorderMixLight);
+            c.a = 1f;
+            return c;
         }
 
         private static Color BestInk(ThemeTokens t, Color backdrop)

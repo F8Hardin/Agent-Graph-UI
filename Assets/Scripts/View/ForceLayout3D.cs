@@ -7,13 +7,13 @@ namespace AgentConsole.View
     public sealed class LayoutSettings
     {
         [Header("Shells (tier radii)")]
-        public float ServerShell = 4.0f;
-        public float ToolShell = 6.8f;
+        public float ServerShell = 7.0f;
+        public float ToolShell = 12.5f;
 
         [Header("Forces")]
         [Tooltip("Pair repulsion = Repulsion * (ri + rj)^2 / d^2, so big spheres claim more room.")]
-        public float Repulsion = 26f;
-        public float CollisionPadding = 0.6f;
+        public float Repulsion = 44f;
+        public float CollisionPadding = 1.1f;
         public float CollisionStrength = 40f;
         public float LinkStiffness = 5f;
         public float ShellStiffness = 10f;
@@ -129,6 +129,26 @@ namespace AgentConsole.View
             if (alpha > _alpha) _alpha = alpha;
             _restTicks = 0;
         }
+
+/// <summary>Pinned nodes ignore forces and hold their position. A drag pins the grabbed node.</summary>
+        public void SetPinned(int i, bool pinned)
+        {
+            if (i < 0 || i >= _n) return;
+            _pinned[i] = pinned;
+            _vel[i] = Vector3.zero;
+            _restTicks = 0;
+        }
+
+        public bool IsPinned(int i) => i >= 0 && i < _n && _pinned[i];
+
+        /// <summary>Move a node directly (a drag). Its velocity is dropped so it does not carry stale momentum on release.</summary>
+        public void SetPosition(int i, Vector3 p)
+        {
+            if (i < 0 || i >= _n) return;
+            _pos[i] = p;
+            _vel[i] = Vector3.zero;
+        }
+
 
         /// <summary>One fixed tick. Returns false (and does nothing) once settled.</summary>
         public bool Step()

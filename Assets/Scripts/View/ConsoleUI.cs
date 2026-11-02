@@ -50,7 +50,6 @@ namespace AgentConsole.View
         private TMP_InputField _input;
         private TextMeshProUGUI _runText;
         private RectTransform _popover;
-        private TextMeshProUGUI _themeLabel;
         private readonly System.Collections.Generic.List<(string key, Image ring)> _swatches =
             new System.Collections.Generic.List<(string, Image)>();
 
@@ -247,9 +246,6 @@ namespace AgentConsole.View
             gear.raycastTarget = false;
             UiKit.Stretch(gear.rectTransform, 11f, 11f, 11f, 11f);
 
-            _themeLabel = UiKit.Text(root, "Theme Label", string.Empty, 13, _tb, Role.Muted, FontStyles.Normal, TextAlignmentOptions.MidlineRight, false);
-            UiKit.SetAnchors(_themeLabel.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-88f, 24f), new Vector2(200f, 54f));
-
             Image pop = UiKit.Panel(root, "Settings Popover", _tb, Role.Surface, 0.96f);
             _popover = pop.rectTransform;
             UiKit.SetAnchors(_popover, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 90f), new Vector2(330f, 336f));
@@ -363,7 +359,6 @@ namespace AgentConsole.View
             if (theme != null)
             {
                 ThemePreset p = ThemePresets.Find(theme.PresetKey);
-                _themeLabel.text = p.Label + (p.Dark ? " / black" : " / white");
                 for (int i = 0; i < _swatches.Count; i++)
                 {
                     _swatches[i].ring.gameObject.SetActive(_swatches[i].key == p.Key);

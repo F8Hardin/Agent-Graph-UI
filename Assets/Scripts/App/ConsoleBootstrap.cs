@@ -27,13 +27,16 @@ namespace AgentConsole.App
     /// </summary>
     public sealed class ConsoleBootstrap : MonoBehaviour
     {
+        /// <summary>EVA on the home network. Used only when the transport is EvaSse; the default transport stays Replay.</summary>
+        public const string DefaultEvaBaseUrl = "http://10.0.0.219:8000";
+
         public const string ReplayPrompt = "Cross-check last week’s trading notes against my open positions.";
 
         [SerializeField] private ConsoleView view;
 
         [Header("Transport")]
         [SerializeField] private TransportKind transportKind = TransportKind.Replay;
-        [SerializeField] private string evaBaseUrl = EvaSseTransport.DefaultBaseUrl;
+        [SerializeField] private string evaBaseUrl = DefaultEvaBaseUrl;
         [Tooltip("Replay speed multiplier. 1 is the prototype's real timing.")]
         [SerializeField, Min(0.1f)] private float replaySpeed = 1f;
         [Tooltip("Replay only: start the scripted run by itself after a short beat, as the prototype does.")]
@@ -55,6 +58,18 @@ namespace AgentConsole.App
         private void Start()
         {
             if (view == null) view = FindAnyObjectByType<ConsoleView>();
+
+            // A built player is pointed at an agent by config.json, not by a rebuild.
+            ConsoleConfig cfg = ConsoleConfig.Load();
+            if (cfg != null)
+            {
+                transportKind = cfg.Kind;
+                evaBaseUrl = cfg.evaBaseUrl;
+            }
+            else
+            {
+                new ConsoleConfig { transport = transportKind.ToString(), evaBaseUrl = evaBaseUrl }.WriteIfAbsent();
+            }
 
             GraphModel graph = new GraphModel(agentLabel, SampleInventory.Eva());
             _reducer = new ConsoleReducer(graph);

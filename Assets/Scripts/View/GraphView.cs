@@ -55,6 +55,14 @@ namespace AgentConsole.View
         [SerializeField] private LayoutSettings layout = new LayoutSettings();
         [SerializeField] private int warmStartTicks = 100;
 
+        [Header("Dragging")]
+        [Tooltip("Layout alpha held while a node is being dragged. Higher = the neighbours react harder. After release it cools to rest and freezes.")]
+        [SerializeField, Range(0.05f, 1f)] private float dragHeat = 0.35f;
+        [Tooltip("The node must move this far (world units) before a press becomes a drag, so a plain click disturbs nothing.")]
+        [SerializeField, Min(0f)] private float dragStartDistance = 0.15f;
+        [Tooltip("A dragged node is kept within this many ToolShell radii of the centre.")]
+        [SerializeField, Min(1f)] private float dragMaxShells = 2.5f;
+
         [Header("Pulses")]
         [SerializeField] private float serverHopDelay = 0.17f;
         [SerializeField] private float toolHopDelay = 0.34f;
@@ -80,6 +88,11 @@ namespace AgentConsole.View
         private float _boundRadius = 10f;
         private bool _edgesLit;
         private bool _firstFrame = true;
+        private int _dragIndex = -1;
+        private bool _dragMoved;
+        private bool _dragDirty;
+        private Vector3 _dragOffset;
+        private Vector3 _dragStartWorld;
 
         /// <summary>(agent, node) in graph-local space plus the node radius. The camera rig frames the path between them.</summary>
         public event Action<Vector3, Vector3, float> PathFocused;
@@ -114,6 +127,7 @@ namespace AgentConsole.View
         private void OnDisable()
         {
             if (theme != null) theme.Changed -= OnThemeChanged;
+            EndDrag();
         }
 
         private void OnDestroy()
@@ -168,6 +182,84 @@ namespace AgentConsole.View
             ApplyThemeToAll();
         }
 
+// ------------------------------------------------------------------ dragging
+
+        public bool IsDragging => _dragIndex >= 0;
+        public int DraggedIndex => _dragIndex;
+
+        public bool TryGetNodeIndex(string id, out int index) => _nodeIndex.TryGetValue(id ?? string.Empty, out index);
+
+        /// <summary>World position of a node's centre. Index is the order of GraphModel.Nodes.</summary>
+        public Vector3 NodeWorldPosition(int index) => _views[index].Root.position;
+
+        /// <summary>Press: raycast the sphere colliders. True if a draggable node was hit and is now grabbed.</summary>
+        public bool BeginDrag(Ray ray)
+        {
+            if (_dragIndex >= 0 || _views.Count == 0) return false;
+            Physics.SyncTransforms(); // the colliders follow the layout, which moves transforms every frame
+            if (!Physics.Raycast(ray, out RaycastHit hit, 1000f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) return false;
+            for (int i = 0; i < _views.Count; i++)
+            {
+                if (_views[i].Collider == hit.collider) return BeginDragNode(i, hit.point);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Grab a node by index. The agent is the layout's pinned anchor at the centre of both shells, so it is not
+        /// draggable: a press on it falls through to the camera orbit.
+        /// </summary>
+        public bool BeginDragNode(int index, Vector3 grabPointWorld)
+        {
+            if (_dragIndex >= 0 || index < 0 || index >= _views.Count) return false;
+            if (_views[index].Node.Tier == NodeTier.Agent) return false;
+            Vector3 nodeWorld = _views[index].Root.position;
+            _dragIndex = index;
+            _dragOffset = nodeWorld - grabPointWorld; // keep the grab point under the cursor instead of jumping the centre to it
+            _dragStartWorld = nodeWorld;
+            _dragMoved = false;
+            _layout.SetPinned(index, true);
+            return true;
+        }
+
+        /// <summary>Move: drag in the plane through the node that faces the camera.</summary>
+        public void DragTo(Ray ray)
+        {
+            if (_dragIndex < 0) return;
+            Camera cam = viewCamera != null ? viewCamera : Camera.main;
+            if (cam == null) return;
+            Plane plane = new Plane(-cam.transform.forward, _views[_dragIndex].Root.position);
+            if (!plane.Raycast(ray, out float enter)) return;
+            DragToWorld(ray.GetPoint(enter) + _dragOffset);
+        }
+
+        /// <summary>Pin the grabbed node at a world position and re-heat the layout so the rest reacts.</summary>
+        public void DragToWorld(Vector3 worldPoint)
+        {
+            if (_dragIndex < 0) return;
+            if (!_dragMoved)
+            {
+                if ((worldPoint - _dragStartWorld).sqrMagnitude < dragStartDistance * dragStartDistance) return;
+                _dragMoved = true;
+            }
+            Vector3 local = transform.InverseTransformPoint(worldPoint);
+            local = Vector3.ClampMagnitude(local, layout.ToolShell * dragMaxShells);
+            _layout.SetPosition(_dragIndex, local);
+            _layout.Heat(dragHeat); // every frame while held: the springs pull the neighbours after it
+            _dragDirty = true;
+        }
+
+        /// <summary>Release: unpin and let the layout cool to rest. It settles and freezes on its own.</summary>
+        public void EndDrag()
+        {
+            if (_dragIndex < 0) return;
+            _layout.SetPinned(_dragIndex, false);
+            if (_dragMoved) _layout.Heat(dragHeat);
+            _dragIndex = -1;
+            _dragMoved = false;
+        }
+
+
         // ------------------------------------------------------------------ building
 
         private float RadiusOf(NodeTier tier) =>
@@ -183,6 +275,9 @@ namespace AgentConsole.View
             _linkSrc.Clear();
             _linkDst.Clear();
             _layout.Clear();
+            _dragIndex = -1; // the layout was just cleared; any grabbed index is meaningless now
+            _dragMoved = false;
+            _dragDirty = false;
             for (int i = 0; i < _sched.Length; i++) _sched[i].Used = false;
 
             IReadOnlyList<GraphNode> nodes = _graph.Nodes;
@@ -555,7 +650,7 @@ namespace AgentConsole.View
             _edgesLit = anyHot || pulsing;
         }
 
-        private void StepLayout(float dt)
+private void StepLayout(float dt)
         {
             if (_layout.IsSettled) return;
             _acc += dt;
@@ -568,7 +663,9 @@ namespace AgentConsole.View
                 ticks++;
             }
             if (_acc > tick * 4f) _acc = 0f;
-            if (ticks > 0) ApplyLayout();
+            // A drag moves the grabbed sphere every frame, even a frame that ran no tick (a display faster than 60 Hz).
+            if (ticks > 0 || _dragDirty) ApplyLayout();
+            _dragDirty = false;
             if (_layout.IsSettled)
             {
                 _acc = 0f;
