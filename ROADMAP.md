@@ -3,6 +3,13 @@
 Where this is, what ships next, and what is deferred. Phase 1 is the bar for
 "usable": a built game you can chat with EVA through.
 
+## v1 — shipped 2026-11-02
+
+A Windows build that talks to EVA: `Builds/Windows/AgentGraphConsole.exe`,
+pointed at an agent by `config.json` beside the exe, so the address changes
+without a rebuild. `EvaSseTransport` is wired but was first exercised against
+a live server by the user, not by a test.
+
 ## Phase 0 — in this version (done)
 
 - Domain / Transport / View / App assemblies, dependencies one way, 65 tests
@@ -61,6 +68,31 @@ Not in Phase 1: Claude CLI and Hermes. Both need the bridge (below).
    Recency needs a small persisted counter per tool; the others are free.
 8. Error/memory tints decay with the glow instead of persisting after a run.
 
+## Phase 2.5 — movable islands
+
+The chat and tool views stop being fixed panels and become **islands**: small
+movable, resizable surfaces the user arranges around the graph. The point is
+not window chrome for its own sake — it is that each island is a *dynamic
+view onto one part of the agent's state*, so new ones can be added as the
+system grows rather than the UI being redesigned each time.
+
+Design consequences, decided now because they are expensive to retrofit:
+
+- An island is a **view over `ConsoleState`**, registered by kind, not a
+  bespoke panel. Adding one should mean writing a renderer and registering
+  it, nothing else.
+- Position, size and collapsed state belong in persisted settings, per
+  island, keyed by kind — not in the scene.
+- Islands must not overlap the graph's interaction: a drag beginning over an
+  island belongs to the island, the same arbitration `CameraRig` already does
+  for node-drag versus orbit.
+- They have to survive the move to world-space in XR, so no island may depend
+  on screen-space-only behaviour (no pixel-snapped anchoring, no reliance on
+  overlay canvases).
+
+Known islands so far: transcript, tool calls, tool input, agent detail
+(model/temperature/context), MCP config, memory subgraph, sub-agent monitor.
+
 ## Phase 3 — detail, memory, sub-agents
 
 1. **Click the agent sphere** → loaded model, temperature, context size,
@@ -100,3 +132,23 @@ eva-chat web app, against the same `/v1`. Unity stays the desktop and headset
 client. An iOS build would mean a developer account and provisioning for a
 personal tool; WebGL on mobile Safari has no threads and a hard memory
 ceiling, which this scene would hit.
+
+## Open requests not yet scheduled
+
+Gathered from use of v1; slotted into phases on the next pass.
+
+- Nodes more spread out and **more free-floating / bouncing**
+- **Grab the centre node** — it is currently the pinned shell anchor, so it
+  needs unpinning plus a home spring that returns it
+- **Subtree size sets distance**: a node with a bigger subtree sits further out
+- **Do not hop back from a tool until its call completes**
+- White theme is too bright: more white with a **greyish centre**, and the
+  **edges are invisible on white**
+- *Thinking* rendered in italics
+- **Icon mode**: a toggle swapping node names for icons per kind — tool,
+  model, memory, and each variation
+- In-graph node settings: agent sphere size, tool sphere size, edge length
+- Click the agent for model / temperature / context; click a tool for its MCP
+  config, zooming into the sphere
+- VR: grab and hold the centre node, hold trigger to pull every node in close
+  and small around it
