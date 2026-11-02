@@ -44,7 +44,7 @@ namespace AgentConsole.View
 
         private Image _phaseDot;
         private TextMeshProUGUI _phaseText;
-        private TextMeshProUGUI _metaText;
+        private ModelPanel _model;
         private TextMeshProUGUI _lockText;
         private Image _lockTint;
         private TMP_InputField _input;
@@ -58,7 +58,7 @@ namespace AgentConsole.View
             if (theme == null) theme = FindAnyObjectByType<ThemeController>();
             EnsureEventSystem();
             SetupCanvas();
-            UiKit.Font = font != null ? font : TMP_Settings.defaultFontAsset;
+            UiKit.Font = font != null ? font : ConsoleFonts.Regular;
             Build();
             _tb.Applied += RefreshThemeDependents;
             if (theme != null) _tb.Apply(theme.Tokens);
@@ -74,7 +74,7 @@ namespace AgentConsole.View
             if (theme != null) theme.Changed -= _tb.Apply;
         }
 
-        public void Bind(ConsoleReducer r, CameraRig rig)
+        public void Bind(ConsoleReducer r, CameraRig rig, ModelController models = null)
         {
             _r = r;
             _rig = rig;
@@ -82,14 +82,13 @@ namespace AgentConsole.View
             _tools.Bind(r);
             _feed.Bind(r);
             r.PhaseChanged += _ => RefreshPhase();
-            r.MetaChanged += RefreshMeta;
+            _model.Bind(r, models);
             if (rig != null)
             {
                 rig.LockChanged += SetLockVisual;
                 SetLockVisual(rig.Locked);
             }
             RefreshPhase();
-            RefreshMeta();
         }
 
         // ------------------------------------------------------------------ build
@@ -127,6 +126,9 @@ namespace AgentConsole.View
 
             BuildPromptBar(root);
             BuildSettings(root);
+
+            // Last sibling = drawn on top of the transcript and tool rail it overlaps.
+            _model.Dropdown.SetAsLastSibling();
         }
 
         private void BuildTopBar(Transform root)
@@ -181,8 +183,8 @@ namespace AgentConsole.View
             _lockTint.rectTransform.SetSiblingIndex(0);
             lockBtn.onClick.AddListener(() => { if (_rig != null) _rig.ToggleLock(); });
 
-            _metaText = UiKit.Text(bar, "Meta", string.Empty, 13, _tb, Role.Muted, FontStyles.Normal, TextAlignmentOptions.MidlineRight, false);
-            UiKit.SetAnchors(_metaText.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-262f, 0f), new Vector2(420f, 56f));
+            // Model, temperature, context and the picker. Where the plain meta text used to be.
+            _model = new ModelPanel(transform, bar, _tb);
         }
 
         private void BuildPromptBar(Transform root)
@@ -332,19 +334,6 @@ namespace AgentConsole.View
                 _phaseDot.color = c;
             }
             _runText.text = p == Phase.Idle ? "Run" : "Stop";
-        }
-
-        private void RefreshMeta()
-        {
-            if (_r == null) return;
-            ConsoleState s = _r.State;
-            if (string.IsNullOrEmpty(s.Model) && string.IsNullOrEmpty(s.JobId))
-            {
-                _metaText.text = string.Empty;
-                return;
-            }
-            string temp = s.Temperature.HasValue ? " / T" + s.Temperature.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
-            _metaText.text = s.Model + temp + (string.IsNullOrEmpty(s.JobId) ? string.Empty : " / " + s.JobId);
         }
 
         private void SetLockVisual(bool locked)

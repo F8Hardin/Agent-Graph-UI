@@ -128,6 +128,7 @@ namespace AgentConsole.Domain
         public Phase Phase { get; internal set; }
         public string Model { get; internal set; }
         public float? Temperature { get; internal set; }
+        public int? ContextLength { get; internal set; }
         public string JobId { get; internal set; }
 
         /// <summary>Tool calls currently Running.</summary>

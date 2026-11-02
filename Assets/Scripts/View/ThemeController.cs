@@ -5,7 +5,8 @@ namespace AgentConsole.View
 {
     /// <summary>
     /// Owns the active theme and pushes it into the world: URP exponential fog and the camera clear
-    /// colour both come from the theme's background, because fog is the strongest depth cue in this scene.
+    /// colour both come from the theme's stage colour (the background, dimmed on light themes), because fog
+    /// is the strongest depth cue in this scene and must match what the graph is drawn over.
     /// Everything else subscribes to <see cref="Changed"/> and restyles itself.
     /// </summary>
     public sealed class ThemeController : MonoBehaviour
@@ -63,13 +64,13 @@ namespace AgentConsole.View
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Exponential;
             RenderSettings.fogDensity = fogDensity;
-            RenderSettings.fogColor = _tokens.Bg;
+            RenderSettings.fogColor = _tokens.Stage;
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = _tokens.Bg;
+            RenderSettings.ambientLight = _tokens.Stage;
             if (targetCamera != null)
             {
                 targetCamera.clearFlags = CameraClearFlags.SolidColor;
-                targetCamera.backgroundColor = _tokens.Bg;
+                targetCamera.backgroundColor = _tokens.Stage;
             }
         }
 

@@ -36,7 +36,8 @@ namespace AgentConsole.View
             theme = FindAnyObjectByType<ThemeController>();
         }
 
-        public void Bind(ConsoleReducer reducer)
+        /// <param name="models">The model control's state, or null when the agent has no model capability.</param>
+        public void Bind(ConsoleReducer reducer, ModelController models = null)
         {
             if (graph == null) graph = FindAnyObjectByType<GraphView>();
             if (rig == null) rig = FindAnyObjectByType<CameraRig>();
@@ -44,7 +45,7 @@ namespace AgentConsole.View
 
             graph.Bind(reducer);
             rig.Bind(graph);
-            ui.Bind(reducer, rig);
+            ui.Bind(reducer, rig, models);
             ui.PromptSubmitted += s => PromptSubmitted?.Invoke(s);
             ui.StopRequested += () => StopRequested?.Invoke();
         }

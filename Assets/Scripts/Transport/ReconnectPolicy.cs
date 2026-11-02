@@ -19,6 +19,18 @@ namespace AgentConsole.Transport
         public int ConnectTimeoutMs = 15000;
 
         /// <summary>
+        /// Time allowed for GET /models, headers and body. Generous: the inference server may be asked to load
+        /// something before it answers.
+        /// </summary>
+        public int ModelListTimeoutMs = 60000;
+
+        /// <summary>
+        /// Time allowed for POST /set-model, which does not answer until the new model is resident. A 27B model
+        /// takes tens of seconds, and EVA retries a failed load internally, so this is minutes, not seconds.
+        /// </summary>
+        public int ModelSwitchTimeoutMs = 300000;
+
+        /// <summary>
         /// Longest silence before a stream counts as dead. EVA sends a keepalive every 20 seconds,
         /// so a healthy stream is never quiet this long.
         /// </summary>

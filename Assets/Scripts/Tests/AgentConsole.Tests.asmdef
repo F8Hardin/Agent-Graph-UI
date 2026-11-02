@@ -4,6 +4,7 @@
     "references": [
         "AgentConsole.Domain",
         "AgentConsole.Transport",
+        "AgentConsole.View",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

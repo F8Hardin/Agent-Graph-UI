@@ -24,6 +24,9 @@ namespace AgentConsole.Transport
         public string StopFormat = "/jobs/{0}/stop";
         public string ActiveJob = "/jobs/active";
 
+        public string Models = "/models";
+        public string SetModel = "/set-model";
+
         /// <summary>Response header on /submit_prompt carrying the job id.</summary>
         public string JobIdHeader = "X-Job-Id";
     }
@@ -38,15 +41,16 @@ namespace AgentConsole.Transport
     /// the number of data chunks already consumed, so a resume neither misses nor repeats a chunk.
     /// Stopping is explicit: <see cref="StopAsync"/>.
     /// </summary>
-    public sealed class EvaSseTransport : AgentTransportBase, IDisposable
+    public sealed class EvaSseTransport : AgentTransportBase, IModelSelector, IDisposable
     {
         public const string DefaultBaseUrl = "http://10.0.0.219:8000";
 
-        // Only what this class implements. EVA itself also has monitor, schedule and models; those
-        // are REST resources, not part of the stream transport.
+        // Only what this class implements. EVA itself also has monitor and schedule; those are REST
+        // resources this client does not use yet. Models is here because this class implements IModelSelector.
         private static readonly string[] CapabilityList =
         {
-            AgentCapability.Chat, AgentCapability.Stream, AgentCapability.Tools, AgentCapability.Cancel
+            AgentCapability.Chat, AgentCapability.Stream, AgentCapability.Tools, AgentCapability.Cancel,
+            AgentCapability.Models
         };
 
         private sealed class RunState
@@ -217,6 +221,38 @@ namespace AgentConsole.Transport
                 obj.TryGetValue("active", out object active);
                 if (active is Dictionary<string, object> job && job.TryGetValue("job_id", out object id)) return id as string;
                 return null;
+            }
+        }
+
+        /// <summary>GET /models. Slow when the server has to wake the inference engine; never call it from the main thread.</summary>
+        public async Task<ModelCatalog> GetModelsAsync(CancellationToken ct)
+        {
+            using (HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Get, Url(_endpoints.Models)))
+            {
+                BufferedResponse r = await SendBufferedAsync(req, ct, _policy.ModelListTimeoutMs, "model list").ConfigureAwait(false);
+                if (!r.Ok) throw new InvalidOperationException(ModelsWire.ErrorText(r.Status, r.Reason, r.Body));
+                if (!ModelsWire.TryParseCatalog(r.Body, out ModelCatalog catalog))
+                {
+                    throw new InvalidOperationException("EVA's model list was not in the expected form.");
+                }
+                return catalog;
+            }
+        }
+
+        /// <summary>
+        /// POST /set-model. EVA answers only once the model is loaded (or the load has failed), so this can take
+        /// minutes. A failure carries EVA's own explanation, which says whether the previous model is still resident.
+        /// </summary>
+        public async Task SetModelAsync(string modelId, int? contextLength, CancellationToken ct)
+        {
+            if (string.IsNullOrEmpty(modelId)) throw new ArgumentException("A model id is required.", nameof(modelId));
+            using (HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Post, Url(_endpoints.SetModel))
+            {
+                Content = new StringContent(ModelsWire.SetModelJson(modelId, contextLength), Encoding.UTF8, "application/json")
+            })
+            {
+                BufferedResponse r = await SendBufferedAsync(req, ct, _policy.ModelSwitchTimeoutMs, "model switch").ConfigureAwait(false);
+                if (!r.Ok) throw new InvalidOperationException(ModelsWire.ErrorText(r.Status, r.Reason, r.Body));
             }
         }
 
@@ -489,6 +525,49 @@ private static async Task<string> WaitForJobIdAsync(RunState run)
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
                     throw new TimeoutException("Timed out waiting for EVA's response headers.");
+                }
+            }
+        }
+
+        private struct BufferedResponse
+        {
+            public bool Ok;
+            public int Status;
+            public string Reason;
+            public string Body;
+        }
+
+        /// <summary>
+        /// A whole, small request/response with one deadline over headers AND body. The stream helper above only
+        /// bounds the headers, which is right for an SSE stream and wrong here: /set-model's headers arrive after
+        /// the load, and a model list is read in full. Connection failures are reworded so the UI can show them as is.
+        /// </summary>
+        private async Task<BufferedResponse> SendBufferedAsync(HttpRequestMessage req, CancellationToken ct, int timeoutMs, string what)
+        {
+            using (CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                cts.CancelAfter(timeoutMs);
+                try
+                {
+                    using (HttpResponseMessage resp = await _http.SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(false))
+                    {
+                        string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        return new BufferedResponse
+                        {
+                            Ok = resp.IsSuccessStatusCode,
+                            Status = (int)resp.StatusCode,
+                            Reason = resp.ReasonPhrase,
+                            Body = body
+                        };
+                    }
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    throw new TimeoutException("EVA did not finish the " + what + " within " + (timeoutMs / 1000) + " s.");
+                }
+                catch (HttpRequestException e)
+                {
+                    throw new InvalidOperationException("Could not reach EVA for the " + what + ": " + e.Message, e);
                 }
             }
         }
