@@ -152,3 +152,11 @@ Gathered from use of v1; slotted into phases on the next pass.
   config, zooming into the sphere
 - VR: grab and hold the centre node, hold trigger to pull every node in close
   and small around it
+- Black background and a more **spacey** feel for the graph
+- **Separate the scene background colour from the UI colour.** Today one
+  bg/fg pair anchors everything, which is why they cannot move apart: every
+  surface, hairline and muted tone is mixed between them. Splitting it means
+  two anchors -- a scene background for the 3D void, and a UI background the
+  panel palette keeps mixing against -- so the void can go pure black while
+  the panels stay readable, still on one formula rather than per-theme
+  special cases.
