@@ -51,6 +51,7 @@ namespace AgentConsole.Domain
                 case AgentEventKind.Meta:
                     if (ev.Model != null) State.Model = ev.Model;
                     if (ev.Temperature.HasValue) State.Temperature = ev.Temperature;
+                    if (ev.ContextLength.HasValue) State.ContextLength = ev.ContextLength;
                     if (!string.IsNullOrEmpty(ev.JobId)) State.JobId = ev.JobId;
                     MetaChanged?.Invoke();
                     break;
@@ -108,6 +109,7 @@ namespace AgentConsole.Domain
             State.RunningToolCount = 0;
             State.Model = null;
             State.Temperature = null;
+            State.ContextLength = null;
             State.JobId = null;
             SetPhase(Phase.Idle);
             MetaChanged?.Invoke();

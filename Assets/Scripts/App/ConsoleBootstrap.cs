@@ -50,6 +50,7 @@ namespace AgentConsole.App
         private readonly ConcurrentQueue<string> _sendErrors = new ConcurrentQueue<string>();
         private IAgentTransport _transport;
         private ConsoleReducer _reducer;
+        private ModelController _models;
         private CancellationTokenSource _cts;
 
         public ConsoleReducer Reducer => _reducer;
@@ -85,7 +86,13 @@ namespace AgentConsole.App
                 _transport = new EvaSseTransport(evaBaseUrl);
             }
 
-            view.Bind(_reducer);
+            // The model control is gated by capability, never by which agent this is: a transport that cannot list
+            // models does not advertise it, and the control then degrades to a read-only readout.
+            IModelSelector selector = _transport.Supports(AgentCapability.Models) ? _transport as IModelSelector : null;
+            _models = new ModelController(selector);
+
+            view.Bind(_reducer, _models);
+            if (_models.IsAvailable) _models.Refresh(); // async: a slow /models never holds a frame
             view.PromptSubmitted += OnPrompt;
             view.StopRequested += OnStop;
 
@@ -125,6 +132,7 @@ namespace AgentConsole.App
 
         private void Update()
         {
+            _models?.Pump();
             if (_transport == null) return;
 
             // The one hand-off from the worker thread to the main thread. Nothing else touches the reducer.
@@ -148,6 +156,7 @@ namespace AgentConsole.App
                 view.StopRequested -= OnStop;
             }
             _cts?.Cancel();
+            _models?.Dispose();
             (_transport as IDisposable)?.Dispose();
             _cts?.Dispose();
         }

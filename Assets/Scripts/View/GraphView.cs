@@ -37,6 +37,7 @@ namespace AgentConsole.View
         [Header("Assets")]
         [SerializeField] private Material sphereMaterial;
         [SerializeField] private Material edgeMaterial;
+        [Tooltip("Optional override. Left empty, labels use the bundled JetBrains Mono faces (ConsoleFonts).")]
         [SerializeField] private TMP_FontAsset labelFont;
         [SerializeField] private ThemeController theme;
         [SerializeField] private Camera viewCamera;
@@ -108,7 +109,6 @@ namespace AgentConsole.View
         {
             if (viewCamera == null) viewCamera = Camera.main;
             if (theme == null) theme = FindAnyObjectByType<ThemeController>();
-            if (labelFont == null) labelFont = TMP_Settings.defaultFontAsset;
 
             // One shared unit sphere mesh.
             GameObject prim = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -262,6 +262,13 @@ namespace AgentConsole.View
 
         // ------------------------------------------------------------------ building
 
+        private LabelFaces LabelFacesOrOverride()
+        {
+            return labelFont != null
+                ? new LabelFaces(labelFont, null, FontStyles.Bold, FontStyles.Bold | FontStyles.Italic)
+                : ConsoleFonts.Labels;
+        }
+
         private float RadiusOf(NodeTier tier) =>
             tier == NodeTier.Agent ? agentRadius : tier == NodeTier.Server ? serverRadius : toolRadius;
 
@@ -351,7 +358,7 @@ namespace AgentConsole.View
         private void AddNodeView(GraphNode node, Vector3 seed)
         {
             float r = RadiusOf(node.Tier);
-            NodeView v = new NodeView(node, r, transform, _sphereMesh, sphereMaterial, labelFont);
+            NodeView v = new NodeView(node, r, transform, _sphereMesh, sphereMaterial, LabelFacesOrOverride());
             v.Root.localPosition = seed;
             if (viewCamera != null) v.SnapLabel(viewCamera.transform.rotation);
             _nodeIndex[node.Id] = _views.Count;
@@ -498,7 +505,8 @@ namespace AgentConsole.View
             _phase = p;
             if (_views.Count > 0)
             {
-                _views[0].SetLabel(p == Phase.Thinking ? "thinking" : _graph.AgentLabel);
+                // Italic marks the state: "thinking" is something the agent is doing, EVA is its name.
+                _views[0].SetLabel(p == Phase.Thinking ? "thinking" : _graph.AgentLabel, p == Phase.Thinking);
             }
             if (p == Phase.Thinking || p == Phase.Talking)
             {

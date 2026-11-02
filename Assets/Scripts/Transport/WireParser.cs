@@ -33,7 +33,7 @@ namespace AgentConsole.Transport
     /// <summary>
     /// Parses one EVA SSE <c>data:</c> payload into an <see cref="AgentEvent"/>.
     /// <code>
-    /// {"type":"meta","data":{"model":...,"temperature":...,"job_id":...}}
+    /// {"type":"meta","data":{"model":...,"temperature":...,"context_length":...,"job_id":...}}
     /// {"type":"thought","data":"delta"}   {"type":"content","data":"delta"}
     /// {"type":"ai_callback","data":{"event":"tool_start","tool":...,"input":...,"run_id":...}}
     /// {"type":"error","data":"..."}
@@ -65,7 +65,12 @@ namespace AgentConsole.Transport
                     {
                         temperature = (float)t;
                     }
-                    ev = AgentEvent.Meta(AsString(Get(d, "model")), temperature, AsString(Get(d, "job_id")));
+                    int? contextLength = null;
+                    if (d != null && Get(d, "context_length") is double ctx && ctx >= 0 && ctx <= int.MaxValue)
+                    {
+                        contextLength = (int)ctx;
+                    }
+                    ev = AgentEvent.Meta(AsString(Get(d, "model")), temperature, AsString(Get(d, "job_id")), contextLength);
                     return true;
                 }
 

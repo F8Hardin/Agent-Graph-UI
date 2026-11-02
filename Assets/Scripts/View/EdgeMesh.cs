@@ -52,7 +52,9 @@ namespace AgentConsole.View
             _go.transform.SetParent(parent, false);
             _go.AddComponent<MeshFilter>().sharedMesh = _mesh;
             MeshRenderer mr = _go.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = material;
+            // An instance, not the asset: the theme writes its colours into this material, and writing them into the
+            // shared asset dirtied a tracked file on every Play. NodeView does the same for its spheres.
+            mr.sharedMaterial = new Material(material) { name = "AgentConsole Edges (instance)" };
             mr.shadowCastingMode = ShadowCastingMode.Off;
             mr.receiveShadows = false;
         }
@@ -233,7 +235,12 @@ namespace AgentConsole.View
         public void Destroy()
         {
             if (_mesh != null) UnityEngine.Object.Destroy(_mesh);
-            if (_go != null) UnityEngine.Object.Destroy(_go);
+            if (_go != null)
+            {
+                MeshRenderer mr = _go.GetComponent<MeshRenderer>();
+                if (mr != null && mr.sharedMaterial != null) UnityEngine.Object.Destroy(mr.sharedMaterial);
+                UnityEngine.Object.Destroy(_go);
+            }
         }
     }
 }
