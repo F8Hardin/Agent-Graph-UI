@@ -200,8 +200,17 @@ public void SetLocked(bool locked)
             ApplyPose();
         }
 
+        /// <summary>
+        /// Pointer arbitration, in the one place that already tells a node drag from an orbit. A press belongs to the
+        /// UI when the EventSystem says so, and also when it lands on an island or an island is being grabbed: the
+        /// island rect registry covers the frame where the island's own press handler has not run yet, and Grabbing
+        /// keeps a drag that slides off the island from turning into a camera orbit.
+        /// </summary>
         private static bool PointerOverUi()
         {
+            if (IslandRegistry.Grabbing) return true;
+            Mouse m = Mouse.current;
+            if (m != null && IslandRegistry.PointerOver(m.position.ReadValue())) return true;
             return EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         }
 
@@ -252,8 +261,8 @@ public void SetLocked(bool locked)
                     _nodeDrag = false;
                 }
             }
-            if (_nodeDrag || (!m.leftButton.isPressed && !m.rightButton.isPressed)) _dragging = false;
-            if (!m.middleButton.isPressed) _panning = false;
+            if (_nodeDrag || IslandRegistry.Grabbing || (!m.leftButton.isPressed && !m.rightButton.isPressed)) _dragging = false;
+            if (!m.middleButton.isPressed || IslandRegistry.Grabbing) _panning = false;
 
             Vector2 delta = m.delta.ReadValue();
             if (_dragging)

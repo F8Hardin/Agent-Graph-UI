@@ -7,13 +7,13 @@ namespace AgentConsole.View
     public sealed class LayoutSettings
     {
         [Header("Shells (tier radii)")]
-        public float ServerShell = 7.0f;
-        public float ToolShell = 12.5f;
+        public float ServerShell = 10.5f;
+        public float ToolShell = 20.0f;
 
         [Header("Forces")]
         [Tooltip("Pair repulsion = Repulsion * (ri + rj)^2 / d^2, so big spheres claim more room.")]
-        public float Repulsion = 44f;
-        public float CollisionPadding = 1.1f;
+        public float Repulsion = 78f;
+        public float CollisionPadding = 1.8f;
         public float CollisionStrength = 40f;
         public float LinkStiffness = 5f;
         public float ShellStiffness = 10f;

@@ -83,12 +83,15 @@ namespace AgentConsole.View
     {
         public static TMP_FontAsset Font;
 
-        private static Sprite _rounded, _ring, _circle, _gear;
+        private static Sprite _rounded, _ring, _circle, _gear, _grip;
 
         public static Sprite Rounded => _rounded != null ? _rounded : (_rounded = MakeRounded(false));
         public static Sprite Ring => _ring != null ? _ring : (_ring = MakeRounded(true));
         public static Sprite Circle => _circle != null ? _circle : (_circle = MakeCircle());
         public static Sprite Gear => _gear != null ? _gear : (_gear = MakeGear());
+
+        /// <summary>Six dots, two columns by three rows: the island's move handle.</summary>
+        public static Sprite Grip => _grip != null ? _grip : (_grip = MakeGrip());
 
         private const int N = 64;
         private const float Corner = 22f;
@@ -128,6 +131,32 @@ namespace AgentConsole.View
                 {
                     float d = new Vector2(x + 0.5f - half, y + 0.5f - half).magnitude - (half - 1f);
                     px[y * N + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(Mathf.Clamp01(0.5f - d) * 255f));
+                }
+            }
+            tex.SetPixels32(px);
+            tex.Apply(false, true);
+            return Sprite.Create(tex, new Rect(0, 0, N, N), new Vector2(0.5f, 0.5f), 100f);
+        }
+
+        private static Sprite MakeGrip()
+        {
+            Texture2D tex = NewTex(N);
+            Color32[] px = new Color32[N * N];
+            for (int y = 0; y < N; y++)
+            {
+                for (int x = 0; x < N; x++)
+                {
+                    float a = 0f;
+                    for (int cx = 0; cx < 2; cx++)
+                    {
+                        for (int cy = 0; cy < 3; cy++)
+                        {
+                            Vector2 c = new Vector2(N * (0.34f + 0.32f * cx), N * (0.2f + 0.3f * cy));
+                            float d = new Vector2(x + 0.5f - c.x, y + 0.5f - c.y).magnitude - N * 0.085f;
+                            a = Mathf.Max(a, Mathf.Clamp01(0.5f - d));
+                        }
+                    }
+                    px[y * N + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(a * 255f));
                 }
             }
             tex.SetPixels32(px);

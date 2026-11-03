@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
@@ -7,35 +8,43 @@ using AgentConsole.Domain;
 namespace AgentConsole.View
 {
     /// <summary>
-    /// The transcript. Reads ConsoleState.Transcript and nothing else; it never sees the wire. The reducer
-    /// raises TranscriptChanged once per delta, so this only marks itself dirty and repaints once a frame.
+    /// The Chat island: the transcript of the selected chat. Reads ConsoleState.Transcript and nothing else; it
+    /// never sees the wire. The reducer raises TranscriptChanged once per delta, so this only marks itself dirty and
+    /// repaints once a frame. Loading another chat replaces the message objects, so a row is matched to its message
+    /// by identity, not by position and version alone.
     /// </summary>
     internal sealed class TranscriptPanel
     {
         private sealed class Row
         {
             public RectTransform Root;
+            public TextMeshProUGUI Who;
             public TextMeshProUGUI Body;
             public MessageRole Role;
             public bool Err;
+            public ChatMessage Msg;
             public int Version = -1;
             public bool Open;
+            public string Model;
         }
 
         private readonly ThemeBinder _tb;
-        private readonly CollapsiblePanel _panel;
+        private readonly Island _panel;
         private readonly ScrollRect _scroll;
         private readonly RectTransform _content;
         private readonly TextMeshProUGUI _empty;
         private readonly List<Row> _rows = new List<Row>();
         private ConsoleReducer _r;
+        private ChatSession _session;
         private bool _dirty = true;
         private bool _force;
 
-        public TranscriptPanel(Transform parent, ThemeBinder tb, float topInset, float height)
+        public Island Island => _panel;
+
+        public TranscriptPanel(Transform parent, ThemeBinder tb, Func<Vector2, Rect> defaultRect)
         {
             _tb = tb;
-            _panel = new CollapsiblePanel(parent, tb, "Transcript", true, 430f, height, topInset);
+            _panel = new Island(parent, tb, "chat", "Chat", new Vector2(300f, 200f), defaultRect);
 
             RectTransform sr = UiKit.NewRect("Scroll", _panel.Body);
             UiKit.Stretch(sr);
@@ -60,8 +69,7 @@ namespace AgentConsole.View
             vlg.childControlHeight = true;
             vlg.childForceExpandWidth = true;
             vlg.childForceExpandHeight = false;
-            ContentSizeFitter fit = _content.gameObject.AddComponent<ContentSizeFitter>();
-            fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            _content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
             _scroll.viewport = viewport;
             _scroll.content = _content;
@@ -70,18 +78,22 @@ namespace AgentConsole.View
             _scroll.movementType = ScrollRect.MovementType.Clamped;
             _scroll.scrollSensitivity = 28f;
 
-            _empty = UiKit.Text(_panel.Body, "Empty", "The transcript appears here as the run streams in.", 15, tb, Role.Muted,
+            _empty = UiKit.Text(_panel.Body, "Empty", "Pick a chat on the left, or type below to start one. The reply streams in here.", 15, tb, Role.Muted,
                 FontStyles.Italic, TextAlignmentOptions.TopLeft, true);
             UiKit.Stretch(_empty.rectTransform, 16f, 12f, 16f, 8f);
             _empty.raycastTarget = false;
 
             tb.Applied += () => _force = true;
+            ConsoleSettings.ViewChanged += () => _force = true;
         }
 
-        public void Bind(ConsoleReducer r)
+        public void Bind(ConsoleReducer r, ChatSession session)
         {
             _r = r;
+            _session = session;
             r.TranscriptChanged += () => _dirty = true;
+            r.MetaChanged += () => _dirty = true;
+            if (session != null) session.Changed += () => _dirty = true;
             _dirty = true;
         }
 
@@ -96,10 +108,20 @@ namespace AgentConsole.View
             IReadOnlyList<ChatMessage> list = _r.State.Transcript;
             bool atBottom = _scroll.verticalNormalizedPosition <= 0.03f || _rows.Count == 0;
             string agent = _r.Graph.AgentLabel.ToLowerInvariant();
+            string model = ConsoleSettings.ShowModel ? _r.State.Model : null;
+            int lastAssistant = -1;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                if (list[i].Role == MessageRole.Assistant && !list[i].IsError)
+                {
+                    lastAssistant = i;
+                    break;
+                }
+            }
 
             while (_rows.Count > list.Count)
             {
-                Object.Destroy(_rows[_rows.Count - 1].Root.gameObject);
+                UnityEngine.Object.Destroy(_rows[_rows.Count - 1].Root.gameObject);
                 _rows.RemoveAt(_rows.Count - 1);
             }
 
@@ -110,7 +132,7 @@ namespace AgentConsole.View
                 chars += m.Length;
                 if (i < _rows.Count && (_rows[i].Role != m.Role || _rows[i].Err != m.IsError))
                 {
-                    Object.Destroy(_rows[i].Root.gameObject);
+                    UnityEngine.Object.Destroy(_rows[i].Root.gameObject);
                     _rows[i] = MakeRow(m, agent, i);
                     force = true;
                 }
@@ -120,20 +142,34 @@ namespace AgentConsole.View
                     force = true;
                 }
                 Row row = _rows[i];
-                if (force || row.Version != m.Version || row.Open != m.IsOpen)
+                string rowModel = i == lastAssistant ? model : null;
+                if (force || row.Msg != m || row.Version != m.Version || row.Open != m.IsOpen || row.Model != rowModel)
                 {
+                    row.Msg = m;
                     row.Version = m.Version;
                     row.Open = m.IsOpen;
+                    row.Model = rowModel;
                     row.Body.text = m.IsOpen ? m.Text + " |" : m.Text;
+                    if (m.Role == MessageRole.Assistant && !m.IsError)
+                    {
+                        row.Who.text = rowModel == null ? agent : agent + "  ·  " + rowModel;
+                    }
                 }
+                // The reasoning toggle hides the rows without losing them, so turning it back on needs no reload.
+                bool show = m.Role != MessageRole.Reasoning || ConsoleSettings.ShowThinking;
+                if (row.Root.gameObject.activeSelf != show) row.Root.gameObject.SetActive(show);
             }
 
             _empty.gameObject.SetActive(list.Count == 0);
-            _panel.Note.text = "(" + (chars / 5) + " tokens est.)";
+            string title = _session != null ? _session.SelectedTitle : null;
+            _panel.Note.text = title != null ? Truncate(title, 22) : "(" + (chars / 5) + " tokens est.)";
+            _panel.Right.text = _r.State.RunInFlight ? "running" : string.Empty;
 
             Canvas.ForceUpdateCanvases();
             if (atBottom) _scroll.verticalNormalizedPosition = 0f;
         }
+
+        private static string Truncate(string s, int n) => s.Length <= n ? s : s.Substring(0, n - 1) + "…";
 
         private Row MakeRow(ChatMessage m, string agent, int index)
         {
@@ -155,7 +191,7 @@ namespace AgentConsole.View
             TextMeshProUGUI body = UiKit.Text(root, "Body", string.Empty, 16, _tb, bodyRole,
                 m.Role == MessageRole.Reasoning ? FontStyles.Italic : FontStyles.Normal, TextAlignmentOptions.TopLeft, true);
 
-            return new Row { Root = root, Body = body, Role = m.Role, Err = m.IsError };
+            return new Row { Root = root, Who = w, Body = body, Role = m.Role, Err = m.IsError };
         }
     }
 }

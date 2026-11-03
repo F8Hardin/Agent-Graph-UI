@@ -112,6 +112,32 @@ namespace AgentConsole.Domain
         }
     }
 
+    /// <summary>What a finished turn produced, for persisting the assistant's side of it.</summary>
+    public readonly struct TurnSummary
+    {
+        public string Content { get; }
+        public string Thinking { get; }
+
+        /// <summary>The error text when the turn ended in an error, else null.</summary>
+        public string ErrorText { get; }
+
+        public string Model { get; }
+        public float? Temperature { get; }
+        public int? ContextLength { get; }
+
+        public bool IsEmpty => string.IsNullOrEmpty(Content) && string.IsNullOrEmpty(Thinking) && string.IsNullOrEmpty(ErrorText);
+
+        internal TurnSummary(string content, string thinking, string errorText, string model, float? temperature, int? contextLength)
+        {
+            Content = content;
+            Thinking = thinking;
+            ErrorText = errorText;
+            Model = model;
+            Temperature = temperature;
+            ContextLength = contextLength;
+        }
+    }
+
     /// <summary>
     /// Everything the transcript, tool rail and graph read. Written only by <see cref="ConsoleReducer"/>.
     /// Main-thread only.
@@ -133,6 +159,13 @@ namespace AgentConsole.Domain
 
         /// <summary>Tool calls currently Running.</summary>
         public int RunningToolCount { get; internal set; }
+
+        /// <summary>
+        /// A run was started by this client and has not finished. Deliberately NOT derived from <see cref="Phase"/>:
+        /// after a send the phase stays Idle until the first thought, content or tool event, so a second send in that
+        /// gap would look idle and start a second run. Set by BeginTurn; cleared by the run-finished signal.
+        /// </summary>
+        public bool RunInFlight { get; internal set; }
 
         public ConsoleState(GraphModel graph)
         {

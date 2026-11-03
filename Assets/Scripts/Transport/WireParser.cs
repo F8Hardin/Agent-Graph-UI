@@ -6,17 +6,20 @@ namespace AgentConsole.Transport
 {
     /// <summary>
     /// The request body for EVA's POST /submit_prompt. Only the fields EVA's PromptData needs:
-    /// the rest (history, image_url, isFirstChat) keep their server-side defaults.
+    /// prompt, chat_id and history. History matters: EVA does not load it from chat_id. The rest
+    /// (image_url, isFirstChat) keep their server-side defaults.
     /// </summary>
     public sealed class SubmitPromptRequest
     {
         public string Prompt { get; }
         public string ChatId { get; }
+        public IReadOnlyList<HistoryItem> History { get; }
 
-        public SubmitPromptRequest(string prompt, string chatId)
+        public SubmitPromptRequest(string prompt, string chatId, IReadOnlyList<HistoryItem> history = null)
         {
             Prompt = prompt ?? string.Empty;
             ChatId = chatId;
+            History = history;
         }
 
         public string ToJson()
@@ -25,6 +28,16 @@ namespace AgentConsole.Transport
             if (!string.IsNullOrEmpty(ChatId))
             {
                 json += ",\"chat_id\":" + MiniJson.Quote(ChatId);
+            }
+            if (History != null && History.Count > 0)
+            {
+                json += ",\"history\":[";
+                for (int i = 0; i < History.Count; i++)
+                {
+                    if (i > 0) json += ",";
+                    json += "{\"role\":" + MiniJson.Quote(History[i].Role) + ",\"content\":" + MiniJson.Quote(History[i].Content) + "}";
+                }
+                json += "]";
             }
             return json + "}";
         }

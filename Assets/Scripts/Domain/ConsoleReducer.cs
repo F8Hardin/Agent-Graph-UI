@@ -34,6 +34,15 @@ namespace AgentConsole.Domain
         public event Action ToolsChanged;
         public event Action MetaChanged;
 
+        /// <summary>
+        /// The run this client started is over: raised once, on RunEnded or on Error, whichever comes first. Both are
+        /// needed. A send failure or a "Stopped." error does not change the phase (it may already be Idle), so nothing
+        /// phase-based can tell the send queue to move on.
+        /// </summary>
+        public event Action<TurnSummary> RunFinished;
+
+        private int _turnStart;
+
         /// <param name="graph">The graph to read and graft onto.</param>
         /// <param name="clockMs">Millisecond clock for tool durations. Injectable so tests need no sleeping.</param>
         public ConsoleReducer(GraphModel graph, Func<long> clockMs = null)
@@ -75,6 +84,7 @@ namespace AgentConsole.Domain
                     State.MessageList.Add(err);
                     SetPhase(Phase.Idle);
                     TranscriptChanged?.Invoke();
+                    FinishRun();
                     break;
 
                 case AgentEventKind.RunEnded:
@@ -82,6 +92,7 @@ namespace AgentConsole.Domain
                     bool endedOpen = CloseOpenMessage();
                     SetPhase(Phase.Idle);
                     if (endedOpen) TranscriptChanged?.Invoke();
+                    FinishRun();
                     break;
 
                 case AgentEventKind.ToolCallback:
@@ -98,6 +109,113 @@ namespace AgentConsole.Domain
             m.Append(text ?? string.Empty);
             State.MessageList.Add(m);
             TranscriptChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Start a turn in the current conversation: the history stays, the tool rail and per-run meta clear.
+        /// This replaces Reset() on the send path, which wiped the transcript and made a real chat impossible.
+        /// </summary>
+        public void BeginTurn(string text)
+        {
+            ClearRunState();
+            State.RunInFlight = true;
+            AddUserMessage(text);
+            _turnStart = State.MessageList.Count;
+            MetaChanged?.Invoke();
+            ToolsChanged?.Invoke();
+        }
+
+        /// <summary>The completed user and assistant turns, in the shape EVA's history field takes. Errors and open messages are left out.</summary>
+        public List<HistoryItem> BuildHistory()
+        {
+            List<HistoryItem> h = new List<HistoryItem>();
+            List<ChatMessage> list = State.MessageList;
+            for (int i = 0; i < list.Count; i++)
+            {
+                ChatMessage m = list[i];
+                if (m.IsOpen || m.IsError || m.Length == 0) continue;
+                if (m.Role == MessageRole.User) h.Add(new HistoryItem("user", m.Text));
+                else if (m.Role == MessageRole.Assistant) h.Add(new HistoryItem("assistant", m.Text));
+            }
+            return h;
+        }
+
+        /// <summary>Replace the conversation with a stored chat. Stored messages are complete, so none is left open.</summary>
+        public void LoadTranscript(IReadOnlyList<StoredMessage> stored)
+        {
+            ClearConversationCore();
+            for (int i = 0; i < stored.Count; i++)
+            {
+                StoredMessage s = stored[i];
+                if (s.Role == "user")
+                {
+                    ChatMessage u = new ChatMessage(MessageRole.User, false);
+                    u.Append(s.Content);
+                    State.MessageList.Add(u);
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(s.Thinking))
+                {
+                    ChatMessage t = new ChatMessage(MessageRole.Reasoning, false);
+                    t.Append(s.Thinking);
+                    State.MessageList.Add(t);
+                }
+                ChatMessage a = new ChatMessage(MessageRole.Assistant, false) { IsError = s.IsError };
+                a.Append(s.Content);
+                State.MessageList.Add(a);
+            }
+            TranscriptChanged?.Invoke();
+        }
+
+        /// <summary>An empty conversation (New chat). The caller guards against doing this mid-run.</summary>
+        public void ClearConversation()
+        {
+            ClearConversationCore();
+            TranscriptChanged?.Invoke();
+        }
+
+        private void ClearConversationCore()
+        {
+            State.MessageList.Clear();
+            // Opening another chat is not a new run: the model, temperature and context describe the server, not the
+            // chat, so they stay on screen instead of blanking until the next meta event.
+            ClearRunState(keepMeta: true);
+            State.RunInFlight = false;
+            ToolsChanged?.Invoke();
+        }
+
+        private void ClearRunState(bool keepMeta = false)
+        {
+            State.ToolList.Clear();
+            _byRun.Clear();
+            State.RunningToolCount = 0;
+            if (!keepMeta)
+            {
+                State.Model = null;
+                State.Temperature = null;
+                State.ContextLength = null;
+            }
+            State.JobId = null;
+            SetPhase(Phase.Idle);
+        }
+
+        private void FinishRun()
+        {
+            if (!State.RunInFlight) return;
+            State.RunInFlight = false;
+            System.Text.StringBuilder content = new System.Text.StringBuilder();
+            System.Text.StringBuilder thinking = new System.Text.StringBuilder();
+            string error = null;
+            List<ChatMessage> list = State.MessageList;
+            for (int i = Math.Min(_turnStart, list.Count); i < list.Count; i++)
+            {
+                ChatMessage m = list[i];
+                if (m.IsError) error = m.Text;
+                else if (m.Role == MessageRole.Assistant) content.Append(m.Text);
+                else if (m.Role == MessageRole.Reasoning) thinking.Append(m.Text);
+            }
+            RunFinished?.Invoke(new TurnSummary(
+                content.ToString(), thinking.ToString(), error, State.Model, State.Temperature, State.ContextLength));
         }
 
         /// <summary>Clear the transcript, tool cards and meta for a new run. The graph is kept, grafted nodes included.</summary>

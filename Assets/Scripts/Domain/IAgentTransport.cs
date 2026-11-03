@@ -40,6 +40,14 @@ namespace AgentConsole.Domain
         /// </summary>
         Task<string> SendAsync(string chatId, string prompt, CancellationToken ct);
 
+        /// <summary>
+        /// As above, with the earlier turns of the conversation. EVA does NOT load history from chat_id: the model
+        /// sees only what the client sends, so a client that omits it gives every turn a blank memory. A transport
+        /// with no use for history (Replay) inherits this and ignores it.
+        /// </summary>
+        Task<string> SendAsync(string chatId, string prompt, IReadOnlyList<HistoryItem> history, CancellationToken ct)
+            => SendAsync(chatId, prompt, ct);
+
         /// <summary>Ask the server to stop a run. Closing the stream alone does not stop it.</summary>
         Task StopAsync(string jobId);
 

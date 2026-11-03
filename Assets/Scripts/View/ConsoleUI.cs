@@ -2,6 +2,7 @@ using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 using AgentConsole.Domain;
@@ -25,11 +26,18 @@ namespace AgentConsole.View
 
         [SerializeField] private TMP_FontAsset font;
         [SerializeField] private ThemeController theme;
-        [SerializeField] private float panelTopInset = 76f;
-        [SerializeField] private float panelHeight = 760f;
+        private const float PanelTop = 76f;       // below the top bar
+        private const float PanelBottomReserve = 170f; // room for the prompt box and its status line
+        private const float PromptWidth = 720f;
+        private const float PromptBottom = 22f;
+        private const float PromptMinHeight = 56f;
+        private const int PromptMaxLines = 7;
 
-        public event Action<string> PromptSubmitted;
-        public event Action StopRequested;
+        /// <summary>The user saved a connection in Settings: transport and base URL. The host stores it; it applies next launch.</summary>
+        public event Action<string, string> ConnectionSaved;
+
+        /// <summary>Tell Settings which connection is live. Called by the host once at start.</summary>
+        public void SetConnection(string transport, string url) => _settings?.SetConnection(transport, url);
 
         /// <summary>Sent when the prompt box is empty. Set by the host; null means an empty prompt sends nothing.</summary>
         public string DefaultPrompt { get; set; }
@@ -38,6 +46,8 @@ namespace AgentConsole.View
         private ConsoleReducer _r;
         private CameraRig _rig;
 
+        private ChatSession _session;
+        private ChatsPanel _chats;
         private TranscriptPanel _transcript;
         private ToolRailPanel _tools;
         private InputFeedPanel _feed;
@@ -49,9 +59,20 @@ namespace AgentConsole.View
         private Image _lockTint;
         private TMP_InputField _input;
         private TextMeshProUGUI _runText;
-        private RectTransform _popover;
-        private readonly System.Collections.Generic.List<(string key, Image ring)> _swatches =
-            new System.Collections.Generic.List<(string, Image)>();
+        private Image _runBg;
+        private Button _runBtn;
+        private RectTransform _promptBar;
+        private TextMeshProUGUI _text;
+        private TextMeshProUGUI _queueText;
+        private TextMeshProUGUI _willQueueText;
+        private float _promptH = PromptMinHeight;
+        private float _lineH;
+        private bool _textDirty = true;
+        private bool _enterPending;
+        private bool _cBusy;
+        private bool _cDraft;
+        private int _cQueued = -1;
+        private SettingsPanel _settings;
 
         private void Awake()
         {
@@ -59,6 +80,7 @@ namespace AgentConsole.View
             EnsureEventSystem();
             SetupCanvas();
             UiKit.Font = font != null ? font : ConsoleFonts.Regular;
+            ConsoleSettings.LoadView();
             Build();
             _tb.Applied += RefreshThemeDependents;
             if (theme != null) _tb.Apply(theme.Tokens);
@@ -74,11 +96,13 @@ namespace AgentConsole.View
             if (theme != null) theme.Changed -= _tb.Apply;
         }
 
-        public void Bind(ConsoleReducer r, CameraRig rig, ModelController models = null)
+        public void Bind(ConsoleReducer r, CameraRig rig, ModelController models = null, ChatSession session = null)
         {
             _r = r;
             _rig = rig;
-            _transcript.Bind(r);
+            _session = session;
+            if (session != null) _chats.Bind(session);
+            _transcript.Bind(r, session);
             _tools.Bind(r);
             _feed.Bind(r);
             r.PhaseChanged += _ => RefreshPhase();
@@ -120,9 +144,12 @@ namespace AgentConsole.View
             Transform root = transform;
             BuildTopBar(root);
 
-            _transcript = new TranscriptPanel(root, _tb, panelTopInset, panelHeight);
-            _tools = new ToolRailPanel(root, _tb, panelTopInset, panelHeight);
-            _feed = new InputFeedPanel(root, _tb, 90f, 720f);
+            // Five islands, each in the same frame (Island). The rects are only the defaults: a moved island
+            // keeps the user's rect, saved per kind.
+            _chats = new ChatsPanel(root, _tb, cs => new Rect(16f, PanelTop, 270f, Mathf.Max(300f, cs.y - PanelTop - PanelBottomReserve)));
+            _transcript = new TranscriptPanel(root, _tb, cs => new Rect(298f, PanelTop, 500f, Mathf.Max(300f, cs.y - PanelTop - PanelBottomReserve)));
+            _tools = new ToolRailPanel(root, _tb, cs => new Rect(cs.x - 16f - 380f, PanelTop, 380f, Mathf.Max(300f, cs.y - PanelTop - PanelBottomReserve)));
+            _feed = new InputFeedPanel(root, _tb, FeedDefault);
 
             BuildPromptBar(root);
             BuildSettings(root);
@@ -187,15 +214,25 @@ namespace AgentConsole.View
             _model = new ModelPanel(transform, bar, _tb);
         }
 
+        /// <summary>The tool input island sits just above the prompt box and its status line, and rides up as the box grows.</summary>
+        private Rect FeedDefault(Vector2 cs)
+        {
+            const float w = 460f;
+            const float h = 270f;
+            float bottom = PromptBottom + _promptH + 34f;
+            float x = Mathf.Max(810f, (cs.x - w) * 0.5f); // clear of the chat island at its default place
+            return new Rect(x, cs.y - bottom - h, w, h);
+        }
+
         private void BuildPromptBar(Transform root)
         {
             Image bg = UiKit.Panel(root, "Prompt Bar", _tb, Role.Surface, 0.88f);
-            RectTransform bar = bg.rectTransform;
-            UiKit.SetAnchors(bar, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 22f), new Vector2(720f, 56f));
-            UiKit.Outline(bar, _tb, Role.Line, 0.9f);
+            _promptBar = bg.rectTransform;
+            UiKit.SetAnchors(_promptBar, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, PromptBottom), new Vector2(PromptWidth, PromptMinHeight));
+            UiKit.Outline(_promptBar, _tb, Role.Line, 0.9f);
 
             // TMP_InputField reads its references in OnEnable, so build it inactive and wire it before it wakes.
-            RectTransform fieldRt = UiKit.NewRect("Prompt Field", bar);
+            RectTransform fieldRt = UiKit.NewRect("Prompt Field", _promptBar);
             fieldRt.gameObject.SetActive(false);
             fieldRt.anchorMin = Vector2.zero;
             fieldRt.anchorMax = Vector2.one;
@@ -210,27 +247,37 @@ namespace AgentConsole.View
             RectTransform area = UiKit.NewRect("Text Area", fieldRt);
             UiKit.Stretch(area, 12f, 4f, 12f, 4f);
             area.gameObject.AddComponent<RectMask2D>();
-            TextMeshProUGUI placeholder = UiKit.Text(area, "Placeholder", "Message the agent, then press Enter...", 17, _tb, Role.Muted,
-                FontStyles.Italic, TextAlignmentOptions.MidlineLeft, false);
+            TextMeshProUGUI placeholder = UiKit.Text(area, "Placeholder", "Message the agent. Shift+Enter: new line", 17, _tb, Role.Muted,
+                FontStyles.Italic, TextAlignmentOptions.TopLeft, true);
             UiKit.Stretch(placeholder.rectTransform);
-            TextMeshProUGUI text = UiKit.Text(area, "Text", string.Empty, 17, _tb, Role.Fg, FontStyles.Normal,
-                TextAlignmentOptions.MidlineLeft, false);
-            UiKit.Stretch(text.rectTransform);
+            _text = UiKit.Text(area, "Text", string.Empty, 17, _tb, Role.Fg, FontStyles.Normal,
+                TextAlignmentOptions.TopLeft, true);
+            UiKit.Stretch(_text.rectTransform);
 
             _input = fieldRt.gameObject.AddComponent<TMP_InputField>();
             _input.textViewport = area;
-            _input.textComponent = text;
+            _input.textComponent = _text;
             _input.placeholder = placeholder;
             if (UiKit.Font != null) _input.fontAsset = UiKit.Font;
-            _input.lineType = TMP_InputField.LineType.SingleLine;
+            // Multi-line so it wraps and grows. Enter is intercepted in ValidateChar rather than using MultiLineSubmit,
+            // which would also drop focus on every send and leave no way to type the next, queued, message.
+            _input.lineType = TMP_InputField.LineType.MultiLineNewline;
             _input.caretWidth = 2;
             _input.customCaretColor = false;
-            _input.onSubmit.AddListener(OnEnter);
+            _input.onValidateInput = ValidateChar;
+            _input.onValueChanged.AddListener(_ => _textDirty = true);
             fieldRt.gameObject.SetActive(true);
 
-            Button run = UiKit.TextButton(bar, "Run", "Run", 17, _tb, Role.Accent, 0.28f, Role.Fg, out _runText);
-            UiKit.SetAnchors((RectTransform)run.transform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-8f, 0f), new Vector2(104f, 40f));
-            run.onClick.AddListener(OnRunClicked);
+            _runBtn = UiKit.TextButton(_promptBar, "Run", "Send", 17, _tb, Role.Accent, 0.28f, Role.Fg, out _runText);
+            _runBg = (Image)_runBtn.targetGraphic;
+            UiKit.SetAnchors((RectTransform)_runBtn.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-8f, 8f), new Vector2(104f, 40f));
+            _runBtn.onClick.AddListener(OnRunClicked);
+
+            // One status line above the box, as the web client has under its textarea.
+            _queueText = UiKit.Text(root, "Queue Status", string.Empty, 13, _tb, Role.Mem, FontStyles.Bold, TextAlignmentOptions.BottomLeft, false);
+            UiKit.SetAnchors(_queueText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, PromptBottom + PromptMinHeight + 4f), new Vector2(PromptWidth - 16f, 22f));
+            _willQueueText = UiKit.Text(root, "Will Queue", string.Empty, 13, _tb, Role.Mem, FontStyles.Bold, TextAlignmentOptions.BottomRight, false);
+            UiKit.SetAnchors(_willQueueText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, PromptBottom + PromptMinHeight + 4f), new Vector2(PromptWidth - 16f, 22f));
         }
 
         private void BuildSettings(Transform root)
@@ -248,78 +295,85 @@ namespace AgentConsole.View
             gear.raycastTarget = false;
             UiKit.Stretch(gear.rectTransform, 11f, 11f, 11f, 11f);
 
-            Image pop = UiKit.Panel(root, "Settings Popover", _tb, Role.Surface, 0.96f);
-            _popover = pop.rectTransform;
-            UiKit.SetAnchors(_popover, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 90f), new Vector2(330f, 336f));
-            UiKit.Outline(_popover, _tb, Role.Line, 0.9f);
-            _popover.gameObject.SetActive(false);
-            cogBtn.onClick.AddListener(() => _popover.gameObject.SetActive(!_popover.gameObject.activeSelf));
-
-            float y = -16f;
-            TextMeshProUGUI h1 = UiKit.Text(_popover, "H1", "Terminal / black", 14, _tb, Role.Muted, FontStyles.Bold, TextAlignmentOptions.TopLeft, false);
-            UiKit.SetAnchors(h1.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, y), new Vector2(280f, 20f));
-            BuildSwatchRow(_popover, y - 28f, 0);
-
-            float y2 = y - 28f - 56f - 12f;
-            TextMeshProUGUI h2 = UiKit.Text(_popover, "H2", "Terminal / white", 14, _tb, Role.Muted, FontStyles.Bold, TextAlignmentOptions.TopLeft, false);
-            UiKit.SetAnchors(h2.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, y2), new Vector2(280f, 20f));
-            BuildSwatchRow(_popover, y2 - 28f, 4);
-
-            TextMeshProUGUI note = UiKit.Text(_popover, "Note", "Surfaces, hairlines, muted text, the node tiers and the fog are mixed from background and font.",
-                12, _tb, Role.Muted, FontStyles.Italic, TextAlignmentOptions.TopLeft, true);
-            UiKit.SetAnchors(note.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, y2 - 28f - 56f - 14f), new Vector2(294f, 52f));
-        }
-
-        private void BuildSwatchRow(RectTransform parent, float y, int first)
-        {
-            for (int i = 0; i < 4; i++)
-            {
-                ThemePreset p = ThemePresets.All[first + i];
-                Image sw = UiKit.Panel(parent, "Swatch " + p.Key, null, Role.Bg, 1f);
-                sw.color = p.Bg;
-                UiKit.SetAnchors(sw.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f + i * 74f, y), new Vector2(66f, 56f));
-                Button b = sw.gameObject.AddComponent<Button>();
-                b.targetGraphic = sw;
-                string key = p.Key;
-                b.onClick.AddListener(() => { if (theme != null) theme.Apply(key); });
-
-                TextMeshProUGUI a = UiKit.Text(sw.transform, "A", "A", 22, null, Role.Fg, FontStyles.Bold, TextAlignmentOptions.Center, false);
-                a.color = p.Fg;
-                UiKit.SetAnchors(a.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -4f), new Vector2(66f, 28f));
-                TextMeshProUGUI n = UiKit.Text(sw.transform, "Name", p.Label, 12, null, Role.Fg, FontStyles.Normal, TextAlignmentOptions.Center, false);
-                n.color = p.Fg;
-                UiKit.SetAnchors(n.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 6f), new Vector2(66f, 18f));
-
-                Image ring = UiKit.Panel(sw.transform, "Selected", _tb, Role.Fg, 1f);
-                ring.sprite = UiKit.Ring;
-                ring.raycastTarget = false;
-                UiKit.Stretch(ring.rectTransform);
-                _swatches.Add((key, ring));
-            }
+            // Settings is an island like the rest: movable, resizable, remembered. The cog opens and closes it.
+            _settings = new SettingsPanel(root, _tb, theme, cs => new Rect(cs.x - 16f - 340f, Mathf.Max(PanelTop, cs.y - 96f - 700f), 340f, Mathf.Min(700f, cs.y - 96f - PanelTop)));
+            _settings.ConnectionSaved += (t, u) => ConnectionSaved?.Invoke(t, u);
+            cogBtn.onClick.AddListener(() => _settings.SetVisible(!_settings.Visible));
         }
 
         // ------------------------------------------------------------------ behaviour
 
-        private void OnEnter(string _)
+        private char ValidateChar(string text, int pos, char c)
         {
-            // Enter sends; it never stops a live run (that is the button's job, and a stray Enter must not kill one).
-            if (_r != null && _r.State.Phase == Phase.Idle) Send();
+            if (c != '\n' && c != '\r') return c;
+            Keyboard kb = Keyboard.current;
+            if (kb != null && kb.shiftKey.isPressed) return '\n'; // Shift+Enter: a new line
+            _enterPending = true; // Enter: send, or queue if a run is live. Done in Update, not inside the edit.
+            return '\0';
         }
+
+        private bool Busy => _session != null && _session.IsBusy;
 
         private void OnRunClicked()
         {
-            if (_r != null && _r.State.Phase != Phase.Idle) StopRequested?.Invoke();
+            // While a run is live the button is always Stop (it also clears the queue). Enter is what queues.
+            if (Busy) _session.Stop();
             else Send();
         }
 
         private void Send()
         {
             string s = _input.text == null ? string.Empty : _input.text.Trim();
-            if (s.Length == 0) s = DefaultPrompt;
-            if (string.IsNullOrEmpty(s)) return;
+            if (s.Length == 0 && !Busy) s = DefaultPrompt;
+            if (string.IsNullOrEmpty(s) || _session == null) return;
             _input.text = string.Empty;
-            PromptSubmitted?.Invoke(s);
+            _session.Submit(s);
         }
+
+        /// <summary>Grow upward with the text to a cap, then scroll inside the field. The islands above ride up with it.</summary>
+        private void RelayoutPrompt()
+        {
+            if (_lineH <= 0f) _lineH = Mathf.Max(18f, _text.GetPreferredValues("A", 1000f, 0f).y);
+            float w = Mathf.Max(120f, _text.rectTransform.rect.width);
+            float ph = _text.GetPreferredValues((_input.text ?? string.Empty) + "\u200B", w, 0f).y;
+            float max = _lineH * PromptMaxLines + 24f;
+            float h = Mathf.Clamp(ph + 24f, PromptMinHeight, max);
+            if (Mathf.Abs(h - _promptH) < 0.5f) return;
+            _promptH = h;
+            _promptBar.sizeDelta = new Vector2(PromptWidth, h);
+            float y = PromptBottom + h + 4f;
+            _queueText.rectTransform.anchoredPosition = new Vector2(0f, y);
+            _willQueueText.rectTransform.anchoredPosition = new Vector2(0f, y);
+        }
+
+        /// <summary>The send button and the queue line, from the session. Cheap: it only touches text when something changed.</summary>
+        private void RefreshComposer()
+        {
+            bool busy = Busy;
+            bool draft = !string.IsNullOrWhiteSpace(_input.text);
+            int queued = _session != null ? _session.QueuedCount : 0;
+            if (busy == _cBusy && draft == _cDraft && queued == _cQueued && _tb.Tokens != null && !_composerForce) return;
+            _composerForce = false;
+            _cBusy = busy;
+            _cDraft = draft;
+            _cQueued = queued;
+
+            _runText.text = busy ? "Stop" : "Send";
+            _runBtn.interactable = busy || draft || !string.IsNullOrEmpty(DefaultPrompt);
+            ThemeTokens t = _tb.Tokens;
+            if (t != null)
+            {
+                Color c = busy ? t.Bad : t.Accent;
+                c.a = busy ? 0.7f : 0.28f;
+                _runBg.color = c;
+            }
+            _queueText.text = queued > 0
+                ? queued + (queued == 1 ? " message queued" : " messages queued") + " - will send automatically (Stop clears)"
+                : string.Empty;
+            _willQueueText.text = busy && draft ? "Enter will queue" : string.Empty;
+        }
+
+        private bool _composerForce;
 
         private void RefreshPhase()
         {
@@ -333,7 +387,6 @@ namespace AgentConsole.View
                 Color c = p == Phase.Idle ? t.Muted : p == Phase.Memory ? t.Mem : p == Phase.ToolCall ? t.Flow : p == Phase.Talking ? t.Fg : t.Accent;
                 _phaseDot.color = c;
             }
-            _runText.text = p == Phase.Idle ? "Run" : "Stop";
         }
 
         private void SetLockVisual(bool locked)
@@ -344,15 +397,9 @@ namespace AgentConsole.View
 
         private void RefreshThemeDependents()
         {
+            _composerForce = true;
             RefreshPhase();
-            if (theme != null)
-            {
-                ThemePreset p = ThemePresets.Find(theme.PresetKey);
-                for (int i = 0; i < _swatches.Count; i++)
-                {
-                    _swatches[i].ring.gameObject.SetActive(_swatches[i].key == p.Key);
-                }
-            }
+            _settings?.RefreshTheme();
         }
 
         private void Update()
@@ -360,6 +407,19 @@ namespace AgentConsole.View
             IsTyping = _input != null && _input.isFocused;
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
             if (_transcript == null) return;
+            if (_enterPending)
+            {
+                _enterPending = false;
+                Send();
+            }
+            if (_textDirty)
+            {
+                _textDirty = false;
+                RelayoutPrompt();
+            }
+            RefreshComposer();
+            _chats.Tick(dt);
+            _settings.Tick(dt);
             _transcript.Tick(dt);
             _tools.Tick(dt);
             _feed.Tick(dt);

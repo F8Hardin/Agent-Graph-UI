@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
@@ -22,7 +23,7 @@ namespace AgentConsole.View
         }
 
         private readonly ThemeBinder _tb;
-        private readonly CollapsiblePanel _panel;
+        private readonly Island _panel;
         private readonly ScrollRect _scroll;
         private readonly RectTransform _content;
         private readonly TextMeshProUGUI _empty;
@@ -31,10 +32,10 @@ namespace AgentConsole.View
         private bool _dirty = true;
         private bool _force;
 
-        public ToolRailPanel(Transform parent, ThemeBinder tb, float topInset, float height)
+        public ToolRailPanel(Transform parent, ThemeBinder tb, Func<Vector2, Rect> defaultRect)
         {
             _tb = tb;
-            _panel = new CollapsiblePanel(parent, tb, "Tool calls", false, 380f, height, topInset);
+            _panel = new Island(parent, tb, "tools", "Tool calls", new Vector2(280f, 160f), defaultRect);
 
             RectTransform sr = UiKit.NewRect("Scroll", _panel.Body);
             UiKit.Stretch(sr);
@@ -75,6 +76,7 @@ namespace AgentConsole.View
             UiKit.Stretch(_empty.rectTransform, 16f, 12f, 16f, 8f);
 
             tb.Applied += () => _force = true;
+            ConsoleSettings.ViewChanged += () => _force = true;
         }
 
         public void Bind(ConsoleReducer r)
@@ -114,7 +116,7 @@ namespace AgentConsole.View
 
             while (_rows.Count > calls.Count)
             {
-                Object.Destroy(_rows[_rows.Count - 1].Root.gameObject);
+                UnityEngine.Object.Destroy(_rows[_rows.Count - 1].Root.gameObject);
                 _rows.RemoveAt(_rows.Count - 1);
             }
 
@@ -138,7 +140,7 @@ namespace AgentConsole.View
                 Color bar = c.Status == ToolStatus.Error ? t.Bad : c.IsMemory ? t.Mem : c.Status == ToolStatus.Done ? t.Muted : t.Accent;
                 row.Bar.color = bar;
 
-                string state = c.Status == ToolStatus.Running ? "running" : c.DurationMs + "ms";
+                string state = c.Status == ToolStatus.Running ? "running" : ConsoleSettings.ShowTimings ? c.DurationMs + "ms" : "done";
                 string result = string.Empty;
                 if (!string.IsNullOrEmpty(c.Output))
                 {

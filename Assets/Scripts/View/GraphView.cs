@@ -16,7 +16,7 @@ namespace AgentConsole.View
     /// </summary>
     public sealed class GraphView : MonoBehaviour
     {
-        private enum Op : byte { Pulse, Heat, Packet, Focus, Fit }
+        private enum Op : byte { Pulse, Heat, Packet, Focus, Fit, Pin }
 
         private struct Scheduled
         {
@@ -33,6 +33,9 @@ namespace AgentConsole.View
         private static readonly float KDecay = 60f * Mathf.Log(0.945f);
         private static readonly float KHold = 60f * Mathf.Log(0.996f);
         private static readonly float KHot = 60f * Mathf.Log(0.94f);
+
+        /// <summary>Glow floor while a tool node is pinned: the pulse peaks at 1, and a held node stays visibly lit just under it.</summary>
+        private const float PinGlow = 0.9f;
 
         [Header("Assets")]
         [SerializeField] private Material sphereMaterial;
@@ -471,6 +474,7 @@ namespace AgentConsole.View
             int l1 = LinkIdx(GraphModel.AgentId, sid);
             int l2 = LinkIdx(sid, toolId);
             bool mem = tool.IsMemory;
+            _views[ti].Live++;
 
             // Two hops: agent -> server now, server -> tool a beat later, tool glow and camera after that.
             Schedule(0f, Op.Pulse, 0, 0.55f, false);
@@ -480,6 +484,7 @@ namespace AgentConsole.View
             Schedule(serverHopDelay, Op.Heat, l2, 1f, mem);
             Schedule(serverHopDelay, Op.Packet, l2, 0f, false);
             Schedule(toolHopDelay, Op.Pulse, ti, 1f, false);
+            Schedule(toolHopDelay, Op.Pin, ti, 0f, false);
             Schedule(toolHopDelay, Op.Focus, ti, 0f, false);
         }
 
@@ -491,6 +496,12 @@ namespace AgentConsole.View
             int l1 = LinkIdx(GraphModel.AgentId, sid);
             int l2 = LinkIdx(sid, toolId);
             bool mem = tool.IsMemory;
+
+            // Release the hold only when the LAST call on this node returns. The reducer reports each resolution once
+            // per run_id (a duplicate end is dropped there), so the counter stays paired.
+            NodeView held = _views[ti];
+            if (held.Live > 0) held.Live--;
+            if (held.Live == 0) held.Pinned = false;
 
             // The return trip reverses the route: tool -> server now, server -> agent a beat later.
             Schedule(0f, Op.Heat, l2, 0.8f, mem);
@@ -515,6 +526,12 @@ namespace AgentConsole.View
             }
             else if (p == Phase.Idle)
             {
+                // Fail-safe: a tool_end that never arrived must not leave a node glowing for ever.
+                for (int i = 0; i < _views.Count; i++)
+                {
+                    _views[i].Live = 0;
+                    _views[i].Pinned = false;
+                }
                 Schedule(0.4f, Op.Fit, 0, 0f, false);
             }
         }
@@ -585,6 +602,10 @@ namespace AgentConsole.View
                 case Op.Packet:
                     if (a >= 0) _edges.Emit(a, flag);
                     break;
+                case Op.Pin:
+                    // Only if the call is still out: a fast call can return before this hop lands.
+                    if (a >= 0 && a < _views.Count && _views[a].Live > 0) _views[a].Pinned = true;
+                    break;
                 case Op.Focus:
                     if (a >= 0 && a < _views.Count)
                     {
@@ -626,7 +647,12 @@ namespace AgentConsole.View
                 NodeView v = _views[i];
                 GraphNode node = v.Node;
                 float g = node.Glow;
-                if (g > 0f)
+                if (v.Pinned)
+                {
+                    if (g < PinGlow) g = PinGlow;
+                    node.Glow = g;
+                }
+                else if (g > 0f)
                 {
                     float k = node.Tier == NodeTier.Agent && _phase != Phase.Idle ? KHold : KDecay;
                     g *= Mathf.Exp(k * dt);

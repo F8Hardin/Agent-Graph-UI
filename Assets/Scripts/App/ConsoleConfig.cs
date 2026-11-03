@@ -25,6 +25,9 @@ namespace AgentConsole.App
 
         public const string FileName = "config.json";
 
+        /// <summary>The file Load() read, so Save() writes back to the same place and the edit is the one that wins.</summary>
+        private static string _loadedFrom;
+
         public static string BesideExecutable =>
             Path.Combine(Path.GetDirectoryName(Application.dataPath) ?? ".", FileName);
 
@@ -44,6 +47,7 @@ namespace AgentConsole.App
                     if (cfg == null) continue;
                     if (string.IsNullOrWhiteSpace(cfg.evaBaseUrl)) continue;
                     Debug.Log($"[AgentConsole] config from {path}: transport={cfg.transport} url={cfg.evaBaseUrl}");
+                    _loadedFrom = path;
                     return cfg;
                 }
                 catch (Exception e)
@@ -70,6 +74,28 @@ namespace AgentConsole.App
             catch (Exception e)
             {
                 Debug.LogWarning($"[AgentConsole] could not write default config: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Persist a change made in Settings. Goes back to the file that was loaded; with none, to persistentDataPath
+        /// (never the project folder in the editor, where a stray config.json would end up in the repo). Applies on the
+        /// next launch: the transport is built once at start.
+        /// </summary>
+        public void Save()
+        {
+            try
+            {
+                string path = _loadedFrom ?? InPersistentData;
+                string dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(path, JsonUtility.ToJson(this, true));
+                _loadedFrom = path;
+                Debug.Log($"[AgentConsole] saved config to {path}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[AgentConsole] could not save config: {e.Message}");
             }
         }
 

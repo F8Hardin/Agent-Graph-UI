@@ -124,7 +124,10 @@ namespace AgentConsole.Transport
         /// a lost response may still have started a run (see <see cref="GetActiveJobIdAsync"/>).
         /// The token governs the whole run, not just this call.
         /// </summary>
-        public override async Task<string> SendAsync(string chatId, string prompt, CancellationToken ct)
+        public override Task<string> SendAsync(string chatId, string prompt, CancellationToken ct)
+            => SendAsync(chatId, prompt, null, ct);
+
+        public override async Task<string> SendAsync(string chatId, string prompt, IReadOnlyList<HistoryItem> history, CancellationToken ct)
         {
             if (prompt == null) throw new ArgumentNullException(nameof(prompt));
 
@@ -135,7 +138,7 @@ namespace AgentConsole.Transport
             {
                 HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Post, Url(_endpoints.SubmitPrompt))
                 {
-                    Content = new StringContent(new SubmitPromptRequest(prompt, chatId).ToJson(), Encoding.UTF8, "application/json")
+                    Content = new StringContent(new SubmitPromptRequest(prompt, chatId, history).ToJson(), Encoding.UTF8, "application/json")
                 };
                 req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
                 resp = await SendWithTimeoutAsync(req, run.Cts.Token).ConfigureAwait(false);

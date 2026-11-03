@@ -56,6 +56,15 @@ namespace AgentConsole.View
         /// <summary>Picking target for drags. Unit sphere collider on the body, so the body's scale gives it the node radius.</summary>
         public readonly SphereCollider Collider;
 
+        /// <summary>Calls in flight on this tool node. A counter, not a flag: two concurrent calls of one tool share the node.</summary>
+        public int Live;
+
+        /// <summary>
+        /// The glow is held while true, instead of decaying. Armed one hop after the call starts (so the glow does not
+        /// pop before the pulse arrives) and released when the last call on the node returns, or when the run goes Idle.
+        /// </summary>
+        public bool Pinned;
+
         public NodeView(GraphNode node, float radius, Transform parent, Mesh sphere, Material template, LabelFaces faces)
         {
             Node = node;

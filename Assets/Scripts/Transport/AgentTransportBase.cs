@@ -18,6 +18,10 @@ namespace AgentConsole.Transport
         public abstract Task<string> SendAsync(string chatId, string prompt, CancellationToken ct);
         public abstract Task StopAsync(string jobId);
 
+        /// <summary>Transports that can carry history override this; the rest ignore it.</summary>
+        public virtual Task<string> SendAsync(string chatId, string prompt, IReadOnlyList<HistoryItem> history, CancellationToken ct)
+            => SendAsync(chatId, prompt, ct);
+
         /// <summary>The last exception thrown by an OnEvent subscriber, if any. A bad subscriber must not kill the stream.</summary>
         public Exception LastSubscriberError { get; private set; }
 

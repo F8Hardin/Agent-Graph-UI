@@ -47,14 +47,15 @@ namespace AgentConsole.App
         [SerializeField] private string agentLabel = "EVA";
         [SerializeField, Min(16)] private int maxEventsPerFrame = 256;
 
-        private readonly ConcurrentQueue<string> _sendErrors = new ConcurrentQueue<string>();
         private IAgentTransport _transport;
+        private IChatStore _store;
         private ConsoleReducer _reducer;
         private ModelController _models;
-        private CancellationTokenSource _cts;
+        private ChatSession _session;
 
         public ConsoleReducer Reducer => _reducer;
         public IAgentTransport Transport => _transport;
+        public ChatSession Session => _session;
 
         private void Start()
         {
@@ -74,16 +75,17 @@ namespace AgentConsole.App
 
             GraphModel graph = new GraphModel(agentLabel, SampleInventory.Eva());
             _reducer = new ConsoleReducer(graph);
-            _cts = new CancellationTokenSource();
 
             if (transportKind == TransportKind.Replay)
             {
                 _transport = new ReplayTransport(replaySpeed);
+                _store = SampleChats();
                 view.DefaultPrompt = ReplayPrompt;
             }
             else
             {
                 _transport = new EvaSseTransport(evaBaseUrl);
+                _store = new EvaChatStore(evaBaseUrl);
             }
 
             // The model control is gated by capability, never by which agent this is: a transport that cannot list
@@ -91,10 +93,18 @@ namespace AgentConsole.App
             IModelSelector selector = _transport.Supports(AgentCapability.Models) ? _transport as IModelSelector : null;
             _models = new ModelController(selector);
 
-            view.Bind(_reducer, _models);
+            // The send pipeline, queue and chat list: the one object the View talks to, so it never sees a transport.
+            _session = new ChatSession(_reducer, _transport, _store);
+            view.Bind(_reducer, _models, _session);
             if (_models.IsAvailable) _models.Refresh(); // async: a slow /models never holds a frame
-            view.PromptSubmitted += OnPrompt;
-            view.StopRequested += OnStop;
+            _session.SelectionChanged += id => view.LastChatId = id;
+            view.SetConnection(transportKind.ToString(), evaBaseUrl);
+            view.ConnectionSaved += (t, u) =>
+            {
+                // Settings edits the same two fields config.json holds. Empty keeps the old URL rather than blanking it.
+                new ConsoleConfig { transport = t, evaBaseUrl = string.IsNullOrWhiteSpace(u) ? evaBaseUrl : u }.Save();
+            };
+            _session.Refresh(view.LastChatId); // reopens the chat the user was in, as the web client does
 
             if (transportKind == TransportKind.Replay && autoStartReplay)
             {
@@ -105,34 +115,26 @@ namespace AgentConsole.App
         private IEnumerator AutoStart()
         {
             yield return new WaitForSeconds(autoStartDelay);
-            OnPrompt(ReplayPrompt);
+            _session.Submit(ReplayPrompt);
         }
 
-        private void OnPrompt(string prompt)
+        /// <summary>The Replay transport has no server, so its chats live in memory: enough for the chat islands to be real in the demo.</summary>
+        private static MemoryChatStore SampleChats()
         {
-            if (_transport == null || string.IsNullOrWhiteSpace(prompt)) return;
-            _reducer.Reset();
-            _reducer.AddUserMessage(prompt);
-
-            // IDs are server-owned: no chat id is invented here. The transport returns the job id.
-            Task<string> send = _transport.SendAsync(null, prompt, _cts.Token);
-            send.ContinueWith(
-                t => _sendErrors.Enqueue(t.Exception != null ? t.Exception.GetBaseException().Message : "Send failed."),
-                TaskContinuationOptions.OnlyOnFaulted);
-        }
-
-        private void OnStop()
-        {
-            string job = _reducer.State.JobId;
-            if (_transport == null || string.IsNullOrEmpty(job)) return;
-            _transport.StopAsync(job).ContinueWith(
-                t => _sendErrors.Enqueue(t.Exception != null ? t.Exception.GetBaseException().Message : "Stop failed."),
-                TaskContinuationOptions.OnlyOnFaulted);
+            MemoryChatStore store = new MemoryChatStore();
+            store.Seed("Market open checklist",
+                new StoredMessage("user", "What should I check before the open?"),
+                new StoredMessage("assistant", "Futures, the overnight news on your holdings, and any earnings on today's calendar."));
+            store.Seed("Weekend reading list",
+                new StoredMessage("user", "Summarise the papers I saved on state space models."),
+                new StoredMessage("assistant", "Three of them extend Mamba; the other two are about long-context cost."));
+            return store;
         }
 
         private void Update()
         {
             _models?.Pump();
+            _session?.Pump();
             if (_transport == null) return;
 
             // The one hand-off from the worker thread to the main thread. Nothing else touches the reducer.
@@ -142,23 +144,14 @@ namespace AgentConsole.App
                 _reducer.Apply(ev);
                 n++;
             }
-            while (_sendErrors.TryDequeue(out string message))
-            {
-                _reducer.Apply(AgentEvent.Error(message));
-            }
         }
 
         private void OnDestroy()
         {
-            if (view != null)
-            {
-                view.PromptSubmitted -= OnPrompt;
-                view.StopRequested -= OnStop;
-            }
-            _cts?.Cancel();
+            _session?.Dispose();
             _models?.Dispose();
             (_transport as IDisposable)?.Dispose();
-            _cts?.Dispose();
+            (_store as IDisposable)?.Dispose();
         }
     }
 }

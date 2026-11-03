@@ -15,11 +15,18 @@ namespace AgentConsole.View
         [SerializeField] private ConsoleUI ui;
         [SerializeField] private ThemeController theme;
 
-        /// <summary>The user sent a prompt (typed, or the default when the box was empty).</summary>
-        public event Action<string> PromptSubmitted;
+        /// <summary>The user saved a connection in Settings (transport name, base URL). The host persists it.</summary>
+        public event Action<string, string> ConnectionSaved;
 
-        /// <summary>The user pressed Stop on a live run.</summary>
-        public event Action StopRequested;
+        /// <summary>Show Settings the connection that is live.</summary>
+        public void SetConnection(string transport, string url) { if (ui != null) ui.SetConnection(transport, url); }
+
+        /// <summary>The chat to reopen on launch, remembered across runs (the web client's eva.lastChatId).</summary>
+        public string LastChatId
+        {
+            get => ConsoleSettings.LastChatId;
+            set => ConsoleSettings.LastChatId = value;
+        }
 
         /// <summary>Prompt used when the box is empty. Leave null for a transport where an empty prompt means nothing.</summary>
         public string DefaultPrompt
@@ -37,7 +44,8 @@ namespace AgentConsole.View
         }
 
         /// <param name="models">The model control's state, or null when the agent has no model capability.</param>
-        public void Bind(ConsoleReducer reducer, ModelController models = null)
+        /// <param name="session">The chat list and send pipeline. The View sends and stops through it and never sees a transport.</param>
+        public void Bind(ConsoleReducer reducer, ModelController models = null, ChatSession session = null)
         {
             if (graph == null) graph = FindAnyObjectByType<GraphView>();
             if (rig == null) rig = FindAnyObjectByType<CameraRig>();
@@ -45,9 +53,8 @@ namespace AgentConsole.View
 
             graph.Bind(reducer);
             rig.Bind(graph);
-            ui.Bind(reducer, rig, models);
-            ui.PromptSubmitted += s => PromptSubmitted?.Invoke(s);
-            ui.StopRequested += () => StopRequested?.Invoke();
+            ui.Bind(reducer, rig, models, session);
+            ui.ConnectionSaved += (t, u) => ConnectionSaved?.Invoke(t, u);
         }
 
         public string ThemeKey => theme != null ? theme.PresetKey : ThemePresets.DefaultKey;
