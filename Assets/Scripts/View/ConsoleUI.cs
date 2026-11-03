@@ -144,14 +144,15 @@ namespace AgentConsole.View
             Transform root = transform;
             BuildTopBar(root);
 
-            // Five islands, each in the same frame (Island). The rects are only the defaults: a moved island
+            // Three islands plus Settings, each in the same frame (Island). The rects are only the defaults: a moved island
             // keeps the user's rect, saved per kind.
             _chats = new ChatsPanel(root, _tb, cs => new Rect(16f, PanelTop, 270f, Mathf.Max(300f, cs.y - PanelTop - PanelBottomReserve)));
             _transcript = new TranscriptPanel(root, _tb, cs => new Rect(298f, PanelTop, 500f, Mathf.Max(300f, cs.y - PanelTop - PanelBottomReserve)));
             _tools = new ToolRailPanel(root, _tb, cs => new Rect(cs.x - 16f - 380f, PanelTop, 380f, Mathf.Max(300f, cs.y - PanelTop - PanelBottomReserve)));
-            _feed = new InputFeedPanel(root, _tb, FeedDefault);
 
             BuildPromptBar(root);
+            // The tool input list hangs off the prompt bar so the two stay together when the bar grows.
+            _feed = new InputFeedPanel(_promptBar, _tb);
             BuildSettings(root);
 
             // Last sibling = drawn on top of the transcript and tool rail it overlaps.
@@ -212,16 +213,6 @@ namespace AgentConsole.View
 
             // Model, temperature, context and the picker. Where the plain meta text used to be.
             _model = new ModelPanel(transform, bar, _tb);
-        }
-
-        /// <summary>The tool input island sits just above the prompt box and its status line, and rides up as the box grows.</summary>
-        private Rect FeedDefault(Vector2 cs)
-        {
-            const float w = 460f;
-            const float h = 270f;
-            float bottom = PromptBottom + _promptH + 34f;
-            float x = Mathf.Max(810f, (cs.x - w) * 0.5f); // clear of the chat island at its default place
-            return new Rect(x, cs.y - bottom - h, w, h);
         }
 
         private void BuildPromptBar(Transform root)

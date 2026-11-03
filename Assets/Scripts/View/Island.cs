@@ -133,16 +133,27 @@ namespace AgentConsole.View
             header.pivot = new Vector2(0.5f, 1f);
             header.anchoredPosition = Vector2.zero;
             header.sizeDelta = new Vector2(0f, HeaderHeight);
-            Image hit = header.gameObject.AddComponent<Image>();
-            hit.color = new Color(0f, 0f, 0f, 0f); // invisible, but it takes the click
-            Button btn = header.gameObject.AddComponent<Button>();
-            btn.targetGraphic = hit;
-            btn.transition = Selectable.Transition.None;
-            btn.onClick.AddListener(Toggle);
+            // The header itself takes no clicks. Only the caret toggles and only the grip drags:
+            // when the whole header was the button, releasing a grip drag bubbled a click up to it
+            // and collapsed the island on every move.
+            Image hdrBg = header.gameObject.AddComponent<Image>();
+            hdrBg.color = new Color(0f, 0f, 0f, 0f);
+            hdrBg.raycastTarget = false;
 
-            TextMeshProUGUI caret = UiKit.Text(header, "Caret", ">", 18, tb, Role.Accent, FontStyles.Bold, TextAlignmentOptions.Center, false);
+            // Caret hit box: its own button, a little larger than the glyph so it stays easy to hit.
+            RectTransform caretHit = UiKit.NewRect("CaretHit", header);
+            UiKit.SetAnchors(caretHit, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(26f, 0f), new Vector2(34f, 34f));
+            Image caretBg = caretHit.gameObject.AddComponent<Image>();
+            caretBg.color = new Color(0f, 0f, 0f, 0f);
+            caretBg.raycastTarget = true;
+            Button caretBtn = caretHit.gameObject.AddComponent<Button>();
+            caretBtn.targetGraphic = caretBg;
+            caretBtn.transition = Selectable.Transition.None;
+            caretBtn.onClick.AddListener(Toggle);
+
+            TextMeshProUGUI caret = UiKit.Text(caretHit, "Caret", ">", 18, tb, Role.Accent, FontStyles.Bold, TextAlignmentOptions.Center, false);
             _caret = caret.rectTransform;
-            UiKit.SetAnchors(_caret, new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(26f, 0f), new Vector2(24f, 24f));
+            UiKit.SetAnchors(_caret, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(24f, 24f));
 
             TextMeshProUGUI t = UiKit.Text(header, "Title", title, 18, tb, Role.Fg, FontStyles.Bold, TextAlignmentOptions.MidlineLeft, false);
             UiKit.SetAnchors(t.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(46f, 0f), new Vector2(150f, HeaderHeight));
@@ -151,7 +162,7 @@ namespace AgentConsole.View
             UiKit.SetAnchors(Note.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(46f + 12f + title.Length * 10.5f, 0f), new Vector2(170f, HeaderHeight));
 
             Right = UiKit.Text(header, "Right", string.Empty, 13, tb, Role.Accent, FontStyles.Bold, TextAlignmentOptions.MidlineRight, false);
-            UiKit.SetAnchors(Right.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-50f, 0f), new Vector2(90f, HeaderHeight));
+            UiKit.SetAnchors(Right.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-100f, 0f), new Vector2(90f, HeaderHeight));
 
             Body = UiKit.NewRect("Body", Root);
             Body.anchorMin = Vector2.zero;
@@ -160,11 +171,13 @@ namespace AgentConsole.View
             Body.offsetMax = new Vector2(0f, -HeaderHeight);
             Body.gameObject.AddComponent<RectMask2D>();
 
-            // Grip last in the header so it sits above the header's collapse button and takes the press.
+            // Grip is drag-only. It sinks its own click (see IslandHandle) so nothing else sees it.
             Image grip = UiKit.Panel(header, "Grip", tb, Role.Muted, 0.9f, false);
             grip.sprite = UiKit.Grip;
             grip.type = Image.Type.Simple;
-            UiKit.SetAnchors(grip.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-10f, 0f), new Vector2(30f, 34f));
+            // Clear of the 26-unit TopRight corner hit area, which otherwise overlapped the grip
+            // and turned a move into a resize.
+            UiKit.SetAnchors(grip.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-32f, 0f), new Vector2(30f, 34f));
             IslandHandle gh = grip.gameObject.AddComponent<IslandHandle>();
             gh.Init(this, null);
 
@@ -322,7 +335,7 @@ namespace AgentConsole.View
     }
 
     /// <summary>The grip (corner null) or one corner of an island. Turns pointer drags into canvas-unit deltas.</summary>
-    internal sealed class IslandHandle : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IDragHandler, IEndDragHandler
+    internal sealed class IslandHandle : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IDragHandler, IEndDragHandler, IPointerClickHandler
     {
         private Island _island;
         private IslandCorner? _corner;
@@ -338,6 +351,15 @@ namespace AgentConsole.View
         public void OnPointerDown(PointerEventData e)
         {
             if (e.button == PointerEventData.InputButton.Left) IslandRegistry.Grabbing = true;
+        }
+
+        /// <summary>
+        /// A grip and a corner are drag-only. Handling click here makes this object the click target,
+        /// so the release never propagates to a button behind it -- which is what used to collapse the
+        /// island at the end of every move. Deliberately does nothing.
+        /// </summary>
+        public void OnPointerClick(PointerEventData e)
+        {
         }
 
         public void OnPointerUp(PointerEventData e)

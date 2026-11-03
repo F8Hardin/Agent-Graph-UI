@@ -68,6 +68,19 @@ namespace AgentConsole.View
             }
         }
 
+        /// <summary>Drop the saved frame of an island that no longer exists, so a retired kind does not linger in PlayerPrefs.</summary>
+        public static void ForgetLayout(string kind)
+        {
+            try
+            {
+                PlayerPrefs.DeleteKey(IslandPrefix + kind);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[AgentConsole] could not forget layout for " + kind + ": " + e.Message);
+            }
+        }
+
         /// <summary>The selected chat, remembered across launches as the web client does with eva.lastChatId. Null when none.</summary>
         public static string LastChatId
         {
