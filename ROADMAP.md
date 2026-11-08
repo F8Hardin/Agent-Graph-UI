@@ -3,6 +3,51 @@
 Where this is, what ships next, and what is deferred. Phase 1 is the bar for
 "usable": a built game you can chat with EVA through.
 
+## Current state - 2026-11-08
+
+Read this first; the phase sections below describe intent, this describes fact.
+
+`main` is at `d46b596`, clean, pushed. 119 Domain tests pass.
+
+Landed since v1:
+
+- **Islands.** Chat, transcript, tool rail and tool feed are movable,
+  resizable surfaces. Corners resize, a six-dot grip at the top right moves,
+  a caret collapses. Position/size/collapsed persist per island kind.
+- **Real multi-chat.** Chat list, select to open, history sent on the
+  request, messages posted back to `/chats/{id}/messages`. No EVA change was
+  needed - every endpoint already existed.
+- **Send pipeline.** The button sends, queues or stops, matching the web app.
+  `PromptQueue` in Domain holds queued prompts.
+- **Tool feed above the prompt bar.** A vertical stack, newest at the bottom
+  and most visible, older entries fading upward - not a separate box.
+- **UI scale.** Minecraft-style size options, default 0.75 (Small).
+  `CanvasScaler.ScaleWithScreenSize` ignores `scaleFactor`, so the knob is
+  `referenceResolution`: a larger reference makes the UI smaller.
+- **Model switching** in-app, and a JetBrains Mono font asset.
+
+Known gaps, in priority order:
+
+1. **The chat path has never run against live EVA.** `EvaSseTransport` and
+   every chat call are unverified outside tests. This is the top risk.
+2. **Tool duration is still computed client-side.** EVA now emits an
+   authoritative `duration_ms` on `tool_end`/`tool_error` (EVA `8007cf7`),
+   because the old client-side measurement was reading queue latency, not
+   tool time - it reported ~5000 ms for a one-second call. `ConsoleReducer`
+   should prefer `duration_ms` when present and keep its `Stopwatch` only as
+   the fallback.
+3. **Settings parity with the web app** is incomplete: context length,
+   temperature, the detected-MCP list, custom theme colour pickers, and the
+   "loaded and saved models differ" warning are all missing.
+4. **Pausable tools** are not built on either side. Decided shape: EVA owns
+   it (`GET`/`POST /tools`), filtering before `ToolNode` and `bind_tools` so
+   a paused tool's schema never reaches the model, and server-level toggles
+   ship first - 8 servers beats 83 tools, and the schemas cluster by server
+   at roughly 12-20k tokens a turn.
+5. **The server-side repo has no git remote.** `CloudSystems/AI_Graph_interactions`
+   holds `bridge/` and `docs/INTERFACE.md` and is drifting with nowhere to
+   push. Fold it in here as `bridge/`, or give it a remote.
+
 ## v1 — shipped 2026-11-02
 
 A Windows build that talks to EVA: `Builds/Windows/AgentGraphConsole.exe`,
