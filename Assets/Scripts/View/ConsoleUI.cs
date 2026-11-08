@@ -73,14 +73,15 @@ namespace AgentConsole.View
         private bool _cDraft;
         private int _cQueued = -1;
         private SettingsPanel _settings;
+        private CanvasScaler _scaler;
 
         private void Awake()
         {
             if (theme == null) theme = FindAnyObjectByType<ThemeController>();
             EnsureEventSystem();
+            ConsoleSettings.LoadView();
             SetupCanvas();
             UiKit.Font = font != null ? font : ConsoleFonts.Regular;
-            ConsoleSettings.LoadView();
             Build();
             _tb.Applied += RefreshThemeDependents;
             if (theme != null) _tb.Apply(theme.Tokens);
@@ -89,11 +90,13 @@ namespace AgentConsole.View
         private void OnEnable()
         {
             if (theme != null) theme.Changed += _tb.Apply;
+            ConsoleSettings.ViewChanged += ApplyUiScale;
         }
 
         private void OnDisable()
         {
             if (theme != null) theme.Changed -= _tb.Apply;
+            ConsoleSettings.ViewChanged -= ApplyUiScale;
         }
 
         public void Bind(ConsoleReducer r, CameraRig rig, ModelController models = null, ChatSession session = null)
@@ -133,10 +136,17 @@ namespace AgentConsole.View
             CanvasScaler scaler = GetComponent<CanvasScaler>();
             if (scaler == null) scaler = gameObject.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            _scaler = scaler;
+            ApplyUiScale();
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
             if (GetComponent<GraphicRaycaster>() == null) gameObject.AddComponent<GraphicRaycaster>();
+        }
+
+        /// <summary>A larger reference resolution makes the UI smaller, so the scale divides it.</summary>
+        private void ApplyUiScale()
+        {
+            if (_scaler != null) _scaler.referenceResolution = new Vector2(1920f, 1080f) / ConsoleSettings.UiScale;
         }
 
         private void Build()

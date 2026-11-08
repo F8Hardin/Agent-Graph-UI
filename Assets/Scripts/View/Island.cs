@@ -71,6 +71,7 @@ namespace AgentConsole.View
         private float _t;
         private bool _auto;
         private bool _ready;
+        private Vector2 _lastCanvas;
         private Vector2 _pos;
         private float _w, _openH;
         private Vector2 _lastApplied = new Vector2(float.NaN, float.NaN);
@@ -156,10 +157,10 @@ namespace AgentConsole.View
             UiKit.SetAnchors(_caret, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(24f, 24f));
 
             TextMeshProUGUI t = UiKit.Text(header, "Title", title, 18, tb, Role.Fg, FontStyles.Bold, TextAlignmentOptions.MidlineLeft, false);
-            UiKit.SetAnchors(t.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(46f, 0f), new Vector2(150f, HeaderHeight));
+            UiKit.SetAnchors(t.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(62f, 0f), new Vector2(150f, HeaderHeight));
 
             Note = UiKit.Text(header, "Note", string.Empty, 13, tb, Role.Muted, FontStyles.Normal, TextAlignmentOptions.MidlineLeft, false);
-            UiKit.SetAnchors(Note.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(46f + 12f + title.Length * 10.5f, 0f), new Vector2(170f, HeaderHeight));
+            UiKit.SetAnchors(Note.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(62f + 12f + title.Length * 10.5f, 0f), new Vector2(170f, HeaderHeight));
 
             Right = UiKit.Text(header, "Right", string.Empty, 13, tb, Role.Accent, FontStyles.Bold, TextAlignmentOptions.MidlineRight, false);
             UiKit.SetAnchors(Right.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-100f, 0f), new Vector2(90f, HeaderHeight));
@@ -279,10 +280,13 @@ namespace AgentConsole.View
                 _w = Mathf.Max(r.width, _min.x);
                 _openH = Mathf.Max(r.height, _min.y);
             }
-            else if (!_ready)
+            else if (!_ready || cs != _lastCanvas)
             {
+                // Also when the canvas changes size (UI scale, window resize): saved frames are in canvas units, so a
+                // layout from another scale may no longer fit.
                 Clamp();
             }
+            _lastCanvas = cs;
             _ready = true;
 
             float target = _open ? 1f : 0f;

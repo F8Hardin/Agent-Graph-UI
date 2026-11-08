@@ -22,6 +22,7 @@ namespace AgentConsole.View
         private readonly List<(string key, Image ring)> _swatches = new List<(string, Image)>();
         private readonly List<(Func<bool> get, Image box)> _toggles = new List<(Func<bool>, Image)>();
         private readonly List<(string name, Image bg)> _transportButtons = new List<(string, Image)>();
+        private readonly List<(float value, Image bg)> _scaleButtons = new List<(float, Image)>();
         private TMP_InputField _url;
         private TextMeshProUGUI _saved;
         private string _transport = "EvaSse";
@@ -75,6 +76,8 @@ namespace AgentConsole.View
             AddToggle("Show raw events", () => ConsoleSettings.ShowRaw, v => ConsoleSettings.SetView(raw: v));
             AddToggle("Show timings", () => ConsoleSettings.ShowTimings, v => ConsoleSettings.SetView(timings: v));
             AddToggle("Show model", () => ConsoleSettings.ShowModel, v => ConsoleSettings.SetView(model: v));
+            Header("UI size");
+            BuildScaleRow();
             Header("Theme: terminal / black");
             BuildSwatchRow(0);
             Header("Theme: terminal / white");
@@ -85,7 +88,9 @@ namespace AgentConsole.View
             note.gameObject.AddComponent<LayoutElement>().minHeight = 40f;
 
             ConsoleSettings.ViewChanged += RefreshToggles;
+            ConsoleSettings.ViewChanged += RefreshScale;
             RefreshToggles();
+            RefreshScale();
         }
 
         public void Tick(float dt) => _panel.Tick(dt);
@@ -111,6 +116,7 @@ namespace AgentConsole.View
             }
             RefreshToggles();
             RefreshTransport();
+            RefreshScale();
         }
 
         // ------------------------------------------------------------------ build
@@ -226,6 +232,43 @@ namespace AgentConsole.View
                 Color c = on ? t.Accent : t.Surface2;
                 c.a = on ? 0.5f : 0.8f;
                 _transportButtons[i].bg.color = c;
+            }
+        }
+
+        private void BuildScaleRow()
+        {
+            RectTransform row = UiKit.NewRect("Scale Row", _content);
+            row.gameObject.AddComponent<LayoutElement>().minHeight = 46f;
+            HorizontalLayoutGroup h = row.gameObject.AddComponent<HorizontalLayoutGroup>();
+            h.spacing = 6f;
+            h.childControlWidth = true;
+            h.childControlHeight = true;
+            h.childForceExpandWidth = true;
+            h.childForceExpandHeight = true;
+            AddScaleButton(row, "Small", 0.75f);
+            AddScaleButton(row, "Normal", 1f);
+            AddScaleButton(row, "Large", 1.25f);
+            AddScaleButton(row, "Huge", 1.5f);
+        }
+
+        private void AddScaleButton(Transform row, string name, float value)
+        {
+            TextMeshProUGUI l;
+            Button b = UiKit.TextButton(row, "Scale " + name, name + "\n" + value.ToString("0.0#", System.Globalization.CultureInfo.InvariantCulture), 13, _tb, Role.Surface2, 0.8f, Role.Fg, out l);
+            _scaleButtons.Add((value, (Image)b.targetGraphic));
+            b.onClick.AddListener(() => ConsoleSettings.SetView(uiScale: value));
+        }
+
+        private void RefreshScale()
+        {
+            ThemeTokens t = _tb.Tokens;
+            if (t == null) return;
+            for (int i = 0; i < _scaleButtons.Count; i++)
+            {
+                bool on = Mathf.Abs(_scaleButtons[i].value - ConsoleSettings.UiScale) < 0.001f;
+                Color c = on ? t.Accent : t.Surface2;
+                c.a = on ? 0.5f : 0.8f;
+                _scaleButtons[i].bg.color = c;
             }
         }
 
