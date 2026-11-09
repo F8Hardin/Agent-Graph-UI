@@ -23,6 +23,7 @@ namespace AgentConsole.View
         private readonly List<(Func<bool> get, Image box)> _toggles = new List<(Func<bool>, Image)>();
         private readonly List<(string name, Image bg)> _transportButtons = new List<(string, Image)>();
         private readonly List<(float value, Image bg)> _scaleButtons = new List<(float, Image)>();
+        private readonly List<(NodeStyleKind kind, Image bg)> _styleButtons = new List<(NodeStyleKind, Image)>();
         private TMP_InputField _url;
         private TextMeshProUGUI _saved;
         private string _transport = "EvaSse";
@@ -78,6 +79,8 @@ namespace AgentConsole.View
             AddToggle("Show model", () => ConsoleSettings.ShowModel, v => ConsoleSettings.SetView(model: v));
             Header("UI size");
             BuildScaleRow();
+            Header("Node style");
+            BuildStyleList();
             Header("Theme: terminal / black");
             BuildSwatchRow(0);
             Header("Theme: terminal / white");
@@ -89,8 +92,10 @@ namespace AgentConsole.View
 
             ConsoleSettings.ViewChanged += RefreshToggles;
             ConsoleSettings.ViewChanged += RefreshScale;
+            ConsoleSettings.ViewChanged += RefreshStyle;
             RefreshToggles();
             RefreshScale();
+            RefreshStyle();
         }
 
         public void Tick(float dt) => _panel.Tick(dt);
@@ -117,6 +122,7 @@ namespace AgentConsole.View
             RefreshToggles();
             RefreshTransport();
             RefreshScale();
+            RefreshStyle();
         }
 
         // ------------------------------------------------------------------ build
@@ -269,6 +275,34 @@ namespace AgentConsole.View
                 Color c = on ? t.Accent : t.Surface2;
                 c.a = on ? 0.5f : 0.8f;
                 _scaleButtons[i].bg.color = c;
+            }
+        }
+
+        // A vertical list, not a row like the scale buttons: "Hologram Wire (soon)" does not fit a third of the panel.
+        private void BuildStyleList()
+        {
+            for (int i = 0; i < NodeStyles.All.Length; i++)
+            {
+                NodeStyleKind kind = NodeStyles.All[i];
+                TextMeshProUGUI l;
+                Button b = UiKit.TextButton(_content, "Style " + NodeStyles.Key(kind), NodeStyles.PickerLabel(kind), 14, _tb, Role.Surface2, 0.8f, Role.Fg, out l);
+                b.gameObject.AddComponent<LayoutElement>().minHeight = 34f;
+                _styleButtons.Add((kind, (Image)b.targetGraphic));
+                // Persist through ConsoleSettings; GraphView listens to ViewChanged and swaps the bodies live.
+                b.onClick.AddListener(() => ConsoleSettings.SetView(nodeStyle: kind));
+            }
+        }
+
+        private void RefreshStyle()
+        {
+            ThemeTokens t = _tb.Tokens;
+            if (t == null) return;
+            for (int i = 0; i < _styleButtons.Count; i++)
+            {
+                bool on = _styleButtons[i].kind == ConsoleSettings.NodeStyle;
+                Color c = on ? t.Accent : t.Surface2;
+                c.a = on ? 0.5f : 0.8f;
+                _styleButtons[i].bg.color = c;
             }
         }
 

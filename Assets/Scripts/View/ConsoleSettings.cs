@@ -32,6 +32,7 @@ namespace AgentConsole.View
             public bool showTimings;
             public bool showModel;
             public float uiScale;
+            public string nodeStyle;
         }
 
         // The web client's four display flags, with its defaults (types.ts): raw hidden, the rest shown.
@@ -42,6 +43,9 @@ namespace AgentConsole.View
 
         /// <summary>UI size multiplier, Minecraft-style: 1 is the 1920x1080 reference, below 1 is smaller. Defaults to Small.</summary>
         public static float UiScale = 0.75f;
+
+        /// <summary>The node body style. Persisted by its stable key (NodeStyles.Key), so the enum can be reordered safely.</summary>
+        public static NodeStyleKind NodeStyle = NodeStyles.Default;
 
         /// <summary>Raised when one of the display flags changes, so open panels repaint.</summary>
         public static event Action ViewChanged;
@@ -125,6 +129,7 @@ namespace AgentConsole.View
                 ShowRaw = v.showRaw;
                 ShowTimings = v.showTimings;
                 ShowModel = v.showModel;
+                NodeStyle = NodeStyles.Parse(v.nodeStyle); // absent in blobs saved before this existed: the default
                 if (v.uiScale > 0f) UiScale = Mathf.Clamp(v.uiScale, 0.5f, 2f); // absent in blobs saved before this existed
             }
             catch (Exception)
@@ -133,18 +138,19 @@ namespace AgentConsole.View
             }
         }
 
-        public static void SetView(bool? thinking = null, bool? raw = null, bool? timings = null, bool? model = null, float? uiScale = null)
+        public static void SetView(bool? thinking = null, bool? raw = null, bool? timings = null, bool? model = null, float? uiScale = null, NodeStyleKind? nodeStyle = null)
         {
             if (thinking.HasValue) ShowThinking = thinking.Value;
             if (raw.HasValue) ShowRaw = raw.Value;
             if (timings.HasValue) ShowTimings = timings.Value;
             if (model.HasValue) ShowModel = model.Value;
             if (uiScale.HasValue) UiScale = Mathf.Clamp(uiScale.Value, 0.5f, 2f);
+            if (nodeStyle.HasValue) NodeStyle = nodeStyle.Value;
             try
             {
                 PlayerPrefs.SetString(ViewKey, JsonUtility.ToJson(new ViewJson
                 {
-                    showThinking = ShowThinking, showRaw = ShowRaw, showTimings = ShowTimings, showModel = ShowModel, uiScale = UiScale
+                    showThinking = ShowThinking, showRaw = ShowRaw, showTimings = ShowTimings, showModel = ShowModel, uiScale = UiScale, nodeStyle = NodeStyles.Key(NodeStyle)
                 }));
             }
             catch (Exception)

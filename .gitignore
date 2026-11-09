@@ -12,6 +12,7 @@
 /[Aa]ssets/Plugins/Editor/JetBrains*
 
 # Screenshots captured through the MCP bridge; never source.
+Captures/
 /[Aa]ssets/Screenshots/
 /[Aa]ssets/Screenshots.meta
 

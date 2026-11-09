@@ -14,7 +14,7 @@ namespace AgentConsole.View
     ///  - 60 fps: glow, link heat, pulses, label billboards and layout ticks all run in Update() on mutable
     ///    floats (GraphNode.Glow, GraphLink.Hot). Nothing in Update() goes through the reducer or allocates.
     /// </summary>
-    public sealed class GraphView : MonoBehaviour
+    public sealed partial class GraphView : MonoBehaviour
     {
         private enum Op : byte { Pulse, Heat, Packet, Focus, Fit, Pin }
 
@@ -120,16 +120,19 @@ namespace AgentConsole.View
 
             _layout = new ForceLayout3D(layout);
             _edges = new EdgeMesh(transform, edgeMaterial) { PacketSeconds = packetSeconds };
+            InitNodeStyles();
         }
 
         private void OnEnable()
         {
             if (theme != null) theme.Changed += OnThemeChanged;
+            ConsoleSettings.ViewChanged += OnViewSettingsChanged;
         }
 
         private void OnDisable()
         {
             if (theme != null) theme.Changed -= OnThemeChanged;
+            ConsoleSettings.ViewChanged -= OnViewSettingsChanged;
             EndDrag();
         }
 
@@ -156,6 +159,7 @@ namespace AgentConsole.View
             _graph.LinkAdded += OnLinkAdded;
             _graph.Rebuilt += BuildAll;
             _phase = reducer.State.Phase;
+            _style = ConsoleSettings.NodeStyle;
             _tokens = theme != null ? theme.Tokens : ThemeTokens.Compute(ThemePresets.BaseOf(ThemePresets.Find(null)));
             BuildAll();
         }
@@ -222,6 +226,7 @@ namespace AgentConsole.View
             _dragStartWorld = nodeWorld;
             _dragMoved = false;
             _layout.SetPinned(index, true);
+            _views[index].SetSelected(true);
             return true;
         }
 
@@ -257,6 +262,7 @@ namespace AgentConsole.View
         {
             if (_dragIndex < 0) return;
             _layout.SetPinned(_dragIndex, false);
+            _views[_dragIndex].SetSelected(false);
             if (_dragMoved) _layout.Heat(dragHeat);
             _dragIndex = -1;
             _dragMoved = false;
@@ -361,7 +367,7 @@ namespace AgentConsole.View
         private void AddNodeView(GraphNode node, Vector3 seed)
         {
             float r = RadiusOf(node.Tier);
-            NodeView v = new NodeView(node, r, transform, _sphereMesh, sphereMaterial, LabelFacesOrOverride());
+            NodeView v = new NodeView(node, r, transform, _sphereMesh, _styleMats, _style, LabelFacesOrOverride());
             v.Root.localPosition = seed;
             if (viewCamera != null) v.SnapLabel(viewCamera.transform.rotation);
             _nodeIndex[node.Id] = _views.Count;
