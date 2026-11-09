@@ -9,7 +9,8 @@ namespace AgentConsole.View
     /// <summary>Which theme token a UI graphic takes its colour from. Restyled on every theme change.</summary>
     internal enum Role
     {
-        Bg, Fg, Muted, Accent, AccentDim, Surface, Surface2, Line, Mem, Bad, Flow
+        Bg, Fg, Muted, Accent, AccentDim, Surface, Surface2, Line, Mem, Bad, Flow,
+        BubbleUser, BubbleEva, BubbleBad, Code, BubbleInk
     }
 
     /// <summary>Keeps every themed graphic and repaints them all when the theme changes.</summary>
@@ -43,6 +44,11 @@ namespace AgentConsole.View
                 case Role.Line: return t.Line;
                 case Role.Mem: return t.Mem;
                 case Role.Bad: return t.Bad;
+                case Role.BubbleUser: return t.BubbleUser;
+                case Role.BubbleEva: return t.BubbleEva;
+                case Role.BubbleBad: return t.BubbleBad;
+                case Role.Code: return t.Code;
+                case Role.BubbleInk: return t.BubbleInk;
                 default: return t.Flow;
             }
         }
@@ -83,12 +89,18 @@ namespace AgentConsole.View
     {
         public static TMP_FontAsset Font;
 
-        private static Sprite _rounded, _ring, _circle, _gear, _grip;
+        private static Sprite _rounded, _ring, _circle, _gear, _grip, _bubbleUser, _bubbleEva;
 
         public static Sprite Rounded => _rounded != null ? _rounded : (_rounded = MakeRounded(false));
         public static Sprite Ring => _ring != null ? _ring : (_ring = MakeRounded(true));
         public static Sprite Circle => _circle != null ? _circle : (_circle = MakeCircle());
         public static Sprite Gear => _gear != null ? _gear : (_gear = MakeGear());
+
+        /// <summary>A bubble with a tight bottom-right corner: the user's, which points at the right edge it sits against.</summary>
+        public static Sprite BubbleUser => _bubbleUser != null ? _bubbleUser : (_bubbleUser = MakeBubble(false));
+
+        /// <summary>A bubble with a tight bottom-left corner: the agent's.</summary>
+        public static Sprite BubbleEva => _bubbleEva != null ? _bubbleEva : (_bubbleEva = MakeBubble(true));
 
         /// <summary>Six dots, two columns by three rows: the island's move handle.</summary>
         public static Sprite Grip => _grip != null ? _grip : (_grip = MakeGrip());
@@ -112,6 +124,38 @@ namespace AgentConsole.View
                     float a = Mathf.Clamp01(0.5f - d);
                     if (ring) a *= Mathf.Clamp01(d + 3.5f); // a 3px band, which is 1.5px on screen at 2x
                     px[y * N + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(a * 255f));
+                }
+            }
+            tex.SetPixels32(px);
+            tex.Apply(false, true);
+            return Sprite.Create(tex, new Rect(0, 0, N, N), new Vector2(0.5f, 0.5f), 100f, 0,
+                SpriteMeshType.FullRect, new Vector4(Corner, Corner, Corner, Corner));
+        }
+
+        private const float BubbleSmall = 6f;
+
+        /// <summary>
+        /// Rounded rectangle whose bottom corner on the speaker's side is tight. Same distance field as MakeRounded,
+        /// but the radius is picked per quadrant; the nine-slice border stays at the large radius so the tight corner
+        /// is simply a smaller curve inside the same border.
+        /// </summary>
+        private static Sprite MakeBubble(bool tightLeft)
+        {
+            Texture2D tex = NewTex(N);
+            Color32[] px = new Color32[N * N];
+            float half = N * 0.5f;
+            for (int y = 0; y < N; y++)
+            {
+                for (int x = 0; x < N; x++)
+                {
+                    bool bottom = y < half;
+                    bool left = x < half;
+                    float r = bottom && left == tightLeft ? BubbleSmall : Corner;
+                    float qx = Mathf.Abs(x + 0.5f - half) - (half - r);
+                    float qy = Mathf.Abs(y + 0.5f - half) - (half - r);
+                    float outside = new Vector2(Mathf.Max(qx, 0f), Mathf.Max(qy, 0f)).magnitude;
+                    float d = outside + Mathf.Min(Mathf.Max(qx, qy), 0f) - r;
+                    px[y * N + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(Mathf.Clamp01(0.5f - d) * 255f));
                 }
             }
             tex.SetPixels32(px);

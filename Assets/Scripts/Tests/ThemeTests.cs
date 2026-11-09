@@ -97,5 +97,53 @@ namespace AgentConsole.Tests
             Color got = ThemeTokens.MixForContrast(Color.white, Color.white, 21f);
             Assert.AreEqual(1f, got.r, 1e-5f);
         }
+
+        [Test]
+        public void BubbleTokens_AreTheSpeakersTintMixedTowardTheBackground()
+        {
+            foreach (ThemePreset p in ThemePresets.All)
+            {
+                ThemeTokens t = Tokens(p);
+                Assert.AreEqual(ThemeTokens.Mix(t.Bg, t.Accent, 0.18f).g, t.BubbleUser.g, 1e-5f, p.Key + ": user bubble");
+                Assert.AreEqual(ThemeTokens.Mix(t.Bg, t.Accent, 0.12f).g, t.BubbleEva.g, 1e-5f, p.Key + ": agent bubble");
+                Assert.AreEqual(ThemeTokens.Mix(t.Bg, t.Bad, 0.18f).r, t.BubbleBad.r, 1e-5f, p.Key + ": error bubble");
+            }
+        }
+
+        [Test]
+        public void BubbleTokens_CanBeOverriddenWithoutTouchingTheBaseFive()
+        {
+            ThemeBase b = ThemePresets.BaseOf(ThemePresets.Find("green-k"));
+            b.BubbleUser = new Color(0.2f, 0.1f, 0.4f, 1f);
+            b.BubbleEva = new Color(0.1f, 0.3f, 0.2f, 1f);
+            ThemeTokens t = ThemeTokens.Compute(b);
+            Assert.AreEqual(0.2f, t.BubbleUser.r, 1e-5f);
+            Assert.AreEqual(0.3f, t.BubbleEva.g, 1e-5f);
+            Assert.AreEqual(b.Bg.r, t.Bg.r, 1e-5f);
+        }
+
+        [Test]
+        public void BubbleInk_ReadsOnEveryBubbleFill_OnEveryTheme()
+        {
+            foreach (ThemePreset p in ThemePresets.All)
+            {
+                ThemeTokens t = Tokens(p);
+                float yi = ThemeTokens.RelativeLuminance(t.BubbleInk);
+                Assert.GreaterOrEqual(ThemeTokens.Contrast(ThemeTokens.RelativeLuminance(t.BubbleUser), yi), 4.45f, p.Key + ": on the user bubble");
+                Assert.GreaterOrEqual(ThemeTokens.Contrast(ThemeTokens.RelativeLuminance(t.BubbleEva), yi), 4.45f, p.Key + ": on the agent bubble");
+                Assert.GreaterOrEqual(ThemeTokens.Contrast(ThemeTokens.RelativeLuminance(t.BubbleBad), yi), 4.45f, p.Key + ": on the error bubble");
+                Assert.GreaterOrEqual(ThemeTokens.Contrast(ThemeTokens.RelativeLuminance(t.Code), yi), 4.45f, p.Key + ": on a code block");
+            }
+        }
+
+        [Test]
+        public void CodeBlocks_AreDarkerThanTheAgentBubble_OnEveryTheme()
+        {
+            foreach (ThemePreset p in ThemePresets.All)
+            {
+                ThemeTokens t = Tokens(p);
+                Assert.Less(ThemeTokens.Lum(t.Code), ThemeTokens.Lum(t.BubbleEva), p.Key);
+            }
+        }
     }
 }

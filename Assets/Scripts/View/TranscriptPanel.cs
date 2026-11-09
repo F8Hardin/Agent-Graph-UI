@@ -12,21 +12,27 @@ namespace AgentConsole.View
     /// never sees the wire. The reducer raises TranscriptChanged once per delta, so this only marks itself dirty and
     /// repaints once a frame. Loading another chat replaces the message objects, so a row is matched to its message
     /// by identity, not by position and version alone.
+    ///
+    /// Each message is a <see cref="ChatBubble"/>. A token stream touches only the open message's bubble, and even
+    /// that is repainted at most every <see cref="StreamInterval"/> seconds: the reducer already coalesces deltas to
+    /// one change per frame, but re-parsing and re-laying-out a Markdown body at 60+ Hz buys nothing the eye can see.
     /// </summary>
     internal sealed class TranscriptPanel
     {
         private sealed class Row
         {
             public RectTransform Root;
-            public TextMeshProUGUI Who;
-            public TextMeshProUGUI Body;
+            public ChatBubble Bubble;
             public MessageRole Role;
             public bool Err;
             public ChatMessage Msg;
             public int Version = -1;
             public bool Open;
             public string Model;
+            public float PaintedAt;
         }
+
+        private const float StreamInterval = 0.06f;
 
         private readonly ThemeBinder _tb;
         private readonly Island _panel;
@@ -38,6 +44,7 @@ namespace AgentConsole.View
         private ChatSession _session;
         private bool _dirty = true;
         private bool _force;
+        private MarkdownStyle _mdStyle = new MarkdownStyle();
 
         public Island Island => _panel;
 
@@ -106,6 +113,8 @@ namespace AgentConsole.View
             _force = false;
 
             IReadOnlyList<ChatMessage> list = _r.State.Transcript;
+            if (force) _mdStyle = BuildStyle(_tb.Tokens);
+            bool changed = force;
             bool atBottom = _scroll.verticalNormalizedPosition <= 0.03f || _rows.Count == 0;
             string agent = _r.Graph.AgentLabel.ToLowerInvariant();
             string model = ConsoleSettings.ShowModel ? _r.State.Model : null;
@@ -145,14 +154,26 @@ namespace AgentConsole.View
                 string rowModel = i == lastAssistant ? model : null;
                 if (force || row.Msg != m || row.Version != m.Version || row.Open != m.IsOpen || row.Model != rowModel)
                 {
-                    row.Msg = m;
-                    row.Version = m.Version;
-                    row.Open = m.IsOpen;
-                    row.Model = rowModel;
-                    row.Body.text = m.IsOpen ? m.Text + " |" : m.Text;
-                    if (m.Role == MessageRole.Assistant && !m.IsError)
+                    // Mid-stream repaints are rate limited; the row stays stale and the panel stays dirty, so the
+                    // last tokens of a burst still land on the next pass that is allowed through.
+                    bool throttled = !force && row.Msg == m && m.IsOpen && row.Open && Time.unscaledTime - row.PaintedAt < StreamInterval;
+                    if (throttled)
                     {
-                        row.Who.text = rowModel == null ? agent : agent + "  ·  " + rowModel;
+                        _dirty = true;
+                    }
+                    else
+                    {
+                        row.Msg = m;
+                        row.Version = m.Version;
+                        row.Open = m.IsOpen;
+                        row.Model = rowModel;
+                        row.PaintedAt = Time.unscaledTime;
+                        row.Bubble.Set(m.IsOpen ? m.Text + " |" : m.Text, _mdStyle);
+                        if (m.Role == MessageRole.Assistant && !m.IsError)
+                        {
+                            row.Bubble.Who.text = rowModel == null ? agent : agent + "  ·  " + rowModel;
+                        }
+                        changed = true;
                     }
                 }
                 // The reasoning toggle hides the rows without losing them, so turning it back on needs no reload.
@@ -165,33 +186,40 @@ namespace AgentConsole.View
             _panel.Note.text = title != null ? Truncate(title, 22) : "(" + (chars / 5) + " tokens est.)";
             _panel.Right.text = _r.State.RunInFlight ? "running" : string.Empty;
 
+            if (!changed) return;
             Canvas.ForceUpdateCanvases();
             if (atBottom) _scroll.verticalNormalizedPosition = 0f;
+        }
+
+        /// <summary>
+        /// Link, quote and muted colours are pushed only as far toward black or white as it takes to read on a bubble,
+        /// the same rule the ink follows, so a light theme's pale accent does not vanish into its tinted fill.
+        /// </summary>
+        private static MarkdownStyle BuildStyle(ThemeTokens t)
+        {
+            Color accent = t.ReadableOn(t.Accent, t.BubbleUser, 4.5f);
+            Color muted = t.ReadableOn(t.Muted, t.BubbleUser, 4.5f);
+            Color mark = t.Accent;
+            mark.a = 0.22f;
+            return new MarkdownStyle
+            {
+                Accent = ThemeTokens.Hex(accent),
+                Heading = ThemeTokens.Hex(t.BubbleInk),
+                Muted = ThemeTokens.Hex(muted),
+                CodeMark = "#" + ColorUtility.ToHtmlStringRGBA(mark)
+            };
         }
 
         private static string Truncate(string s, int n) => s.Length <= n ? s : s.Substring(0, n - 1) + "…";
 
         private Row MakeRow(ChatMessage m, string agent, int index)
         {
-            RectTransform root = UiKit.NewRect("Msg " + index, _content);
-            root.SetSiblingIndex(index);
-            VerticalLayoutGroup vlg = root.gameObject.AddComponent<VerticalLayoutGroup>();
-            vlg.spacing = 2f;
-            vlg.childControlWidth = true;
-            vlg.childControlHeight = true;
-            vlg.childForceExpandWidth = true;
-            vlg.childForceExpandHeight = false;
-
-            string who = m.IsError ? "error" : m.Role == MessageRole.User ? "you" : m.Role == MessageRole.Reasoning ? "reasoning" : agent;
-            Role whoRole = m.IsError ? Role.Bad : m.Role == MessageRole.User ? Role.Accent : Role.Muted;
-            TextMeshProUGUI w = UiKit.Text(root, "Who", who, 12, _tb, whoRole, FontStyles.Bold, TextAlignmentOptions.TopLeft, false);
-            w.characterSpacing = 2f;
-
-            Role bodyRole = m.IsError ? Role.Bad : m.Role == MessageRole.Reasoning ? Role.Muted : Role.Fg;
-            TextMeshProUGUI body = UiKit.Text(root, "Body", string.Empty, 16, _tb, bodyRole,
-                m.Role == MessageRole.Reasoning ? FontStyles.Italic : FontStyles.Normal, TextAlignmentOptions.TopLeft, true);
-
-            return new Row { Root = root, Who = w, Body = body, Role = m.Role, Err = m.IsError };
+            BubbleKind kind = m.IsError ? BubbleKind.Error : m.Role == MessageRole.User ? BubbleKind.User
+                : m.Role == MessageRole.Reasoning ? BubbleKind.Reasoning : BubbleKind.Agent;
+            ChatBubble bubble = new ChatBubble(_content, "Msg " + index, _tb, kind);
+            bubble.Root.SetSiblingIndex(index);
+            bubble.Who.text = kind == BubbleKind.Error ? "error" : kind == BubbleKind.User ? "you" : kind == BubbleKind.Reasoning ? "reasoning" : agent;
+            return new Row { Root = bubble.Root, Bubble = bubble, Role = m.Role, Err = m.IsError };
         }
     }
 }

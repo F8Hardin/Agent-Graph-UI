@@ -7,7 +7,7 @@ Where this is, what ships next, and what is deferred. Phase 1 is the bar for
 
 Read this first; the phase sections below describe intent, this describes fact.
 
-`main` is at `d46b596`, clean, pushed. 119 Domain tests pass.
+`main` is at `d46b596`, clean, pushed. 161 EditMode tests pass (UNI-1 added 42).
 
 Landed since v1:
 
@@ -24,6 +24,11 @@ Landed since v1:
 - **UI scale.** Minecraft-style size options, default 0.75 (Small).
   `CanvasScaler.ScaleWithScreenSize` ignores `scaleFactor`, so the knob is
   `referenceResolution`: a larger reference makes the UI smaller.
+- **Chat bubbles with Markdown (UNI-1).** User bubbles right, agent bubbles
+  left, 75% max width, tinted by the `bubbleUser` / `bubbleEva` theme tokens.
+  `MarkdownTmp` (Domain, engine-free) turns the agent's reply into TMP rich
+  text, with fenced code as its own panel; only the open message repaints
+  while a reply streams. Links render but are not yet clickable.
 - **Model switching** in-app, and a JetBrains Mono font asset.
 
 Known gaps, in priority order:

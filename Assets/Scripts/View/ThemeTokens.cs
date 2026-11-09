@@ -10,6 +10,13 @@ namespace AgentConsole.View
         public Color Accent;
         public Color Mem;
         public Color Bad;
+
+        /// <summary>
+        /// Optional overrides for the chat bubbles. Left unset they are derived from Bg and Accent like every other
+        /// token; a theme picker sets them to repaint the bubbles without touching the base five.
+        /// </summary>
+        public Color? BubbleUser;
+        public Color? BubbleEva;
     }
 
     public sealed class ThemePreset
@@ -85,6 +92,13 @@ namespace AgentConsole.View
         public Color NAgent, NSrv, NTool, NHot, Link, Link2;
 
         /// <summary>
+        /// Chat bubble fills (the web app's bubbleUser / bubbleEva): the speaker's tint mixed toward the background.
+        /// BubbleBad tints an error. Code is the darker panel a fenced block sits in, derived from the EVA bubble so an
+        /// overridden bubble keeps its code blocks in family. BubbleInk is the text colour for all of them.
+        /// </summary>
+        public Color BubbleUser, BubbleEva, BubbleBad, Code, BubbleInk;
+
+        /// <summary>
         /// What the graph is drawn over: the camera clear colour, the fog and the ambient. Equal to Bg on a dark theme
         /// and a soft grey on a light one, so the page (panels, bars) can stay white while the spheres have something to
         /// read against.
@@ -102,6 +116,7 @@ namespace AgentConsole.View
         private const float LinkContrast = 2.2f;
         private const float Link2Contrast = 1.6f;
         private const float MaxLinkMix = 0.8f;
+        private const float InkContrast = 4.5f; // WCAG AA for body text
 
         public static ThemeTokens Compute(ThemeBase b)
         {
@@ -109,6 +124,18 @@ namespace AgentConsole.View
             Color white = Color.white;
             Color black = Color.black;
             Color stage = StageOf(b.Bg);
+            Color bubbleUser = b.BubbleUser ?? Mix(b.Bg, b.Accent, 0.18f);
+            Color bubbleEva = b.BubbleEva ?? Mix(b.Bg, b.Accent, 0.12f);
+            Color bubbleBad = Mix(b.Bg, b.Bad, 0.18f);
+            // The font colour is kept wherever it already reads on a bubble and pushed toward black or white only where
+            // it does not (a light theme's green on a 18% green tint lands near 4:1). Checked against the strongest
+            // fills: user and error on a dark theme, the code panel on a light one.
+            Color code = dark ? Mix(bubbleEva, black, 0.45f) : Mix(bubbleEva, black, 0.07f);
+            Color toward = dark ? white : black;
+            Color ink = MixForContrast(b.Fg, toward, bubbleUser, InkContrast);
+            ink = MixForContrast(ink, toward, bubbleBad, InkContrast);
+            ink = MixForContrast(ink, toward, bubbleEva, InkContrast);
+            ink = MixForContrast(ink, toward, code, InkContrast); // darker than its bubble, so the hardest fill on a light theme
             return new ThemeTokens
             {
                 Dark = dark,
@@ -128,6 +155,11 @@ namespace AgentConsole.View
                 NTool = Mix(b.Bg, b.Fg, 0.38f),
                 NHot = dark ? Mix(b.Accent, white, 0.6f) : Mix(b.Accent, black, 0.35f),
                 Stage = stage,
+                BubbleUser = bubbleUser,
+                BubbleEva = bubbleEva,
+                BubbleBad = bubbleBad,
+                Code = code,
+                BubbleInk = ink,
                 Link = MixForContrast(stage, b.Fg, LinkContrast),
                 Link2 = MixForContrast(stage, b.Fg, Link2Contrast)
             };
@@ -186,6 +218,13 @@ namespace AgentConsole.View
 
         /// <summary>Ink is chosen against the fill it sits on, not against the page.</summary>
         public Color Ink(Color fill) => Lum(fill) > 0.5f ? Bg : Fg;
+
+        /// <summary>
+        /// A colour pushed only as far toward black or white as it takes to read on <paramref name="fill"/> at
+        /// <paramref name="ratio"/>: how links and muted text are kept legible on a bubble.
+        /// </summary>
+        public Color ReadableOn(Color from, Color fill, float ratio) =>
+            MixForContrast(from, Dark ? Color.white : Color.black, fill, ratio);
 
         public static Color Mix(Color a, Color b, float t)
         {
