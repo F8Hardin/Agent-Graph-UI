@@ -3,11 +3,12 @@
 Where this is, what ships next, and what is deferred. Phase 1 is the bar for
 "usable": a built game you can chat with EVA through.
 
-## Current state - 2026-11-08
+## Current state - 2026-11-09
 
 Read this first; the phase sections below describe intent, this describes fact.
 
-`main` is at `d46b596`, clean, pushed. 161 EditMode tests pass (UNI-1 added 42).
+`main` is at `288169d`, clean, pushed. 170 EditMode tests pass. The Windows build
+in `Builds/Windows` was made from that commit on 2026-11-09.
 
 Landed since v1:
 
@@ -30,6 +31,14 @@ Landed since v1:
   text, with fenced code as its own panel; only the open message repaints
   while a reply streams. Links render but are not yet clickable.
 - **Model switching** in-app, and a JetBrains Mono font asset.
+- **Swappable node styles (UNI-25..28).** A node's body is a `NodeVisual`
+  (`View/NodeStyles/`), picked by `NodeStyleKind` and swapped live from
+  Settings. Three styles: Plasma Dome (default), Orbital Core, Hologram Wire.
+  All motion is procedural in the shader, driven by a phase float
+  accumulated in C#; no ParticleSystem per node.
+- **Glass-tube edges (UNI-30).** Six times thicker, the same fresnel rim as
+  the domes, a pixel-width floor that scales with resolution, colours from
+  the node tier tokens.
 
 Known gaps, in priority order:
 
@@ -52,6 +61,62 @@ Known gaps, in priority order:
 5. **The server-side repo has no git remote.** `CloudSystems/AI_Graph_interactions`
    holds `bridge/` and `docs/INTERFACE.md` and is drifting with nowhere to
    push. Fold it in here as `bridge/`, or give it a remote.
+
+## Graphics overhaul - started 2026-11-09
+
+The goal: the graph and the UI look professional, spacey and alive, as one
+designed product. Graphics work lives in View and the shader/material folders
+and never touches Domain, Transport, the reducer or the wire contract. Cards
+are on the EVA Kanban (Area = Unity App).
+
+Art direction, approved by the user from a three-way mock: keep all three node
+looks as selectable styles, in the order Plasma Dome, Orbital Core, Hologram
+Wire. Plasma is the default; Hologram is the cheap style for the headset (one
+draw, no bloom).
+
+| Phase | What | Cards | State |
+|---|---|---|---|
+| 1 | Audit and art direction | - | done |
+| 2 | Node style system, three styles, Settings picker | UNI-25, 26, 27, 28 | shipped, in review |
+| 3 | Backdrop and depth: black void, parallax layers, scene background split from UI colour, white page with a greyish centre | UNI-29, WEB-3 | next |
+| 3b | Backdrop controls: fog toggle; particle field distance, amount, colour, min/max size, inner/outer spawn radius | UNI-32 | next |
+| 3c | High-quality, fog-like cloud instead of flat scene fog plus motes | UNI-33 | open |
+| 4 | Edges: glass tubes matching the nodes; traversal pulses | UNI-30 | shipped, in review |
+| 5 | Motion: grab the centre node, free-floating bounce, spread by subtree size, camera focus and lock | UNI-31, 15, 16, 17, 19 | UNI-31 next |
+| 6 | UI pass: islands, chat, tool feed, settings and top bar in one visual language | UNI-2, 7, 8, 9, 10, 11 | open |
+| 7 | Performance and headset check | UNI-36 | open |
+
+Known rough edges in what shipped, to close before these cards move to Done:
+
+- Nothing new has been looked at on the white themes.
+- Error/down, memory and selected states are implemented in each style but
+  have not been seen on screen.
+- Hologram Wire labels are hard to read over the wires at the default framing.
+- Orbital Core's core does not yet grow with call count (UNI-18).
+- Plasma Dome's motes are shader dots; the user wants higher-quality orb
+  assets (UNI-34), likely a Blender-rendered sprite or flipbook. His
+  glowing-dome reference image is still outstanding.
+- `GraphView.cs` is still over the 400-500 line standard (about 717).
+
+Fog options for UNI-33, not yet chosen: layered soft noise billboards (cheap,
+headset-safe); a raymarched noise volume in a fullscreen pass (best look,
+desktop only); 3D-noise textures baked in Blender.
+
+## Platform targets
+
+Asked for 2026-11-09: a web build and an XR build, to test soon.
+
+- **WebGL (UNI-35).** The build module is installed. Blocker: Transport is
+  plain .NET (`HttpClient`, worker threads), which the browser does not have,
+  so it needs a second `IAgentTransport` built on `UnityWebRequest` or browser
+  fetch, plus CORS on EVA. A look-only build on `ReplayTransport` can come
+  first. This reopens the "Phones" decision below, which ruled WebGL out for
+  mobile Safari; desktop browsers do not share that memory ceiling.
+- **XR on Quest 3 (UNI-36).** OpenXR 1.19 and XR Interaction Toolkit 3.7 are
+  already in the project. The Android build module is not installed, so a
+  standalone headset build needs it added in Unity Hub; a PC-tethered OpenXR
+  build over Link can be tried without it. Phase 4 below still applies:
+  islands move to world-space canvases, and bloom comes off.
 
 ## v1 — shipped 2026-11-02
 
@@ -187,8 +252,10 @@ ceiling, which this scene would hit.
 
 Gathered from use of v1; slotted into phases on the next pass.
 
-- Nodes more spread out and **more free-floating / bouncing**
-- **Grab the centre node** — it is currently the pinned shell anchor, so it
+Each line now names its card where one exists.
+
+- Nodes more spread out and **more free-floating / bouncing** (overhaul phase 5)
+- **Grab the centre node** (UNI-31, must-have) — it is currently the pinned shell anchor, so it
   needs unpinning plus a home spring that returns it
 - **Subtree size sets distance**: a node with a bigger subtree sits further out
 - **Do not hop back from a tool until its call completes**
@@ -202,7 +269,10 @@ Gathered from use of v1; slotted into phases on the next pass.
   config, zooming into the sphere
 - VR: grab and hold the centre node, hold trigger to pull every node in close
   and small around it
-- Black background and a more **spacey** feel for the graph
+- Black background and a more **spacey** feel for the graph (UNI-29)
+- **Fog toggle and particle field controls** in settings (UNI-32)
+- **High-quality fog-like cloud** (UNI-33) and **higher-quality plasma orbs** (UNI-34)
+- **Web build and XR build** to test soon (UNI-35, UNI-36)
 - **Separate the scene background colour from the UI colour.** Today one
   bg/fg pair anchors everything, which is why they cannot move apart: every
   surface, hairline and muted tone is mixed between them. Splitting it means
