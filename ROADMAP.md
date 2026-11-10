@@ -81,7 +81,8 @@ until it ships. The phase table further down is the map, not the order.
 
 | # | Card | What | Why it is here |
 |---|---|---|---|
-| 1 | UNI-31 | The main EVA node is clickable and grabbable like every other bubble | Called out as the priority. Today a press on it falls through to camera orbit, because the agent is the layout's pinned anchor at the origin. |
+| done | UNI-31 | The main EVA node is clickable and grabbable like every other bubble | Shipped 5cdc02c, in review. The layout now anchors on the agent's position and a dropped agent stays put. Verified through the drag API, not yet by hand. |
+| 1 | UNI-22, UNI-23 | Memory graph: recreate the Obsidian vault as a graph off the memory node (notes as nodes, wiki-links as edges), and show a memory search sweeping its files, lighting the notes it touched | Moved to the front on 2026-11-10. First cut lights notes from the paths already in `vault_search` / `vault_read` tool events; EVA-6 makes the hits exact. Open: where the note and link list comes from, since a web or headset client cannot read the vault from disk. |
 | 2 | UNI-37 | Lightsaber edges: when a node is called, light extends along the edge toward it (agent, then server, then tool), holds for the whole call, and retracts when the call ends. The tool node stays highlighted until its call completes | Edges must glow as well as nodes. Today the edge gets one bead and a decaying heat value; only the node glow is held until `tool_end` for the same `run_id`, and that is unverified against live EVA. |
 | 3 | UNI-38 | Edges are real 3D rods (cylinders), not flat ribbons. Looser, string-like connections may follow as a second edge style | UNI-30 shaded a camera-facing ribbon to look round; it still reads flat. Real cylinder geometry in the one edge mesh, one draw call, with room for an edge-style switch. |
 | 4 | UNI-39 | Physics: a dropped node stays exactly where it is dropped; grabbing one node does not set the others floating; others move only through their connecting edges; children follow a moved parent | Observed: a dropped node is pulled toward other nodes. A drag re-heats one global alpha, so every node moves under repulsion, tier shell springs and fixed-rest link springs, and release unpins the node into those forces. Spreading by subtree size belongs to the initial placement only, not to a force that keeps acting. |
@@ -132,8 +133,11 @@ Asked for 2026-11-09: a web build and an XR build, to test soon.
 - **WebGL (UNI-35).** The build module is installed. Blocker: Transport is
   plain .NET (`HttpClient`, worker threads), which the browser does not have,
   so it needs a second `IAgentTransport` built on `UnityWebRequest` or browser
-  fetch, plus CORS on EVA. A look-only build on `ReplayTransport` can come
-  first. This reopens the "Phones" decision below, which ruled WebGL out for
+  fetch, A look-only build on `ReplayTransport` can come
+  first. Graphics run in the visitor's browser; the server only serves the
+  files. Access is over Tailscale with a manually entered address; CORS, a
+  public address and auth are noted for later scaling and ignored for now.
+  This reopens the "Phones" decision below, which ruled WebGL out for
   mobile Safari; desktop browsers do not share that memory ceiling.
 - **XR on Quest 3 (UNI-36).** OpenXR 1.19 and XR Interaction Toolkit 3.7 are
   already in the project. The Android build module is not installed, so a
