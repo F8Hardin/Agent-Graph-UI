@@ -33,6 +33,7 @@ namespace AgentConsole.Domain
         private readonly ConcurrentQueue<Action> _done = new ConcurrentQueue<Action>();
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly PromptQueue _queue = new PromptQueue();
+        private readonly bool _inline;
         private readonly object _chainGate = new object();
         private readonly List<ChatSummary> _chats = new List<ChatSummary>();
         private Task _chain = Task.CompletedTask;
@@ -75,8 +76,15 @@ namespace AgentConsole.Domain
         /// <summary>The selected chat id changed (null = a new, unsaved chat). The host persists it, as the web client does with eva.lastChatId.</summary>
         public event Action<string> SelectionChanged;
 
-        public ChatSession(ConsoleReducer reducer, IAgentTransport transport, IChatStore store)
+        /// <param name="runInline">
+        /// Run a turn on the caller's thread instead of the thread pool. For hosts with no threads (Unity WebGL, where
+        /// thread-pool work never runs): the transport and the store must then complete synchronously or be pumped by the
+        /// host, which the Replay transport in pumped mode and <see cref="MemoryChatStore"/> both do. Off by default;
+        /// a store that really awaits I/O (EVA over HTTP) must keep the thread-pool path.
+        /// </param>
+        public ChatSession(ConsoleReducer reducer, IAgentTransport transport, IChatStore store, bool runInline = false)
         {
+            _inline = runInline;
             _r = reducer ?? throw new ArgumentNullException(nameof(reducer));
             _transport = transport;
             _store = store;
@@ -123,7 +131,15 @@ namespace AgentConsole.Domain
             _stopSent = false;
             _turnChatId = SelectedId;
             string chatId = SelectedId;
-            Task.Run(() => RunTurnAsync(text, history, chatId));
+            if (_inline)
+            {
+                // Everything RunTurnAsync awaits is already complete in this mode, so it finishes before returning.
+                Task ignore = RunTurnAsync(text, history, chatId);
+            }
+            else
+            {
+                Task.Run(() => RunTurnAsync(text, history, chatId));
+            }
             Changed?.Invoke();
         }
 
@@ -400,8 +416,12 @@ namespace AgentConsole.Domain
         {
             lock (_chainGate)
             {
+                // Inline: ExecuteSynchronously runs op() right here when the previous link is done, instead of
+                // queueing it to a thread pool that does not exist on WebGL.
                 _chain = _chain.ContinueWith(
-                    _ => op(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+                    _ => op(), CancellationToken.None,
+                    _inline ? TaskContinuationOptions.ExecuteSynchronously : TaskContinuationOptions.None,
+                    TaskScheduler.Default).Unwrap();
                 return _chain;
             }
         }

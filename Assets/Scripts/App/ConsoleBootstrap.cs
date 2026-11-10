@@ -53,6 +53,7 @@ namespace AgentConsole.App
         private ModelController _models;
         private ChatSession _session;
         private MemoryTracker _memory;
+        private ReplayTransport _pumpedReplay; // set only when the replay is driven from Update (no threads: WebGL)
 
         public ConsoleReducer Reducer => _reducer;
         public IAgentTransport Transport => _transport;
@@ -62,16 +63,26 @@ namespace AgentConsole.App
         {
             if (view == null) view = FindAnyObjectByType<ConsoleView>();
 
-            // A built player is pointed at an agent by config.json, not by a rebuild.
-            ConsoleConfig cfg = ConsoleConfig.Load();
-            if (cfg != null)
+            if (NoThreads)
             {
-                transportKind = cfg.Kind;
-                evaBaseUrl = cfg.evaBaseUrl;
+                // The browser build always runs the offline demo, and ignores config.json: there is no file system
+                // beside a WebGL build. The live EVA transport (HttpClient, worker threads) is not browser-capable
+                // yet; that is tracked as Kanban UNI-35.
+                transportKind = TransportKind.Replay;
             }
             else
             {
-                new ConsoleConfig { transport = transportKind.ToString(), evaBaseUrl = evaBaseUrl }.WriteIfAbsent();
+                // A built player is pointed at an agent by config.json, not by a rebuild.
+                ConsoleConfig cfg = ConsoleConfig.Load();
+                if (cfg != null)
+                {
+                    transportKind = cfg.Kind;
+                    evaBaseUrl = cfg.evaBaseUrl;
+                }
+                else
+                {
+                    new ConsoleConfig { transport = transportKind.ToString(), evaBaseUrl = evaBaseUrl }.WriteIfAbsent();
+                }
             }
 
             GraphModel graph = new GraphModel(agentLabel, SampleInventory.Eva());
@@ -80,7 +91,9 @@ namespace AgentConsole.App
             if (transportKind == TransportKind.Replay)
             {
                 // memoryTree: the demo run includes a memory sequence, so the session memory tree can be watched growing offline.
-                _transport = new ReplayTransport(replaySpeed, memoryTree: true);
+                // pumped: with no threads the schedule is advanced by Update instead of Task.Run + Task.Delay.
+                _pumpedReplay = new ReplayTransport(replaySpeed, memoryTree: true, pumped: NoThreads);
+                _transport = _pumpedReplay;
                 _store = SampleChats();
                 view.DefaultPrompt = ReplayPrompt;
             }
@@ -96,7 +109,7 @@ namespace AgentConsole.App
             _models = new ModelController(selector);
 
             // The send pipeline, queue and chat list: the one object the View talks to, so it never sees a transport.
-            _session = new ChatSession(_reducer, _transport, _store);
+            _session = new ChatSession(_reducer, _transport, _store, runInline: NoThreads);
             view.Bind(_reducer, _models, _session);
             _memory = new MemoryTracker(_reducer); // the session memory tree: grown from successful vault calls, cleared per chat
             view.BindMemory(_memory);
@@ -105,6 +118,7 @@ namespace AgentConsole.App
             view.SetConnection(transportKind.ToString(), evaBaseUrl);
             view.ConnectionSaved += (t, u) =>
             {
+                if (NoThreads) return; // nothing persists in the browser build; the transport is fixed to Replay
                 // Settings edits the same two fields config.json holds. Empty keeps the old URL rather than blanking it.
                 new ConsoleConfig { transport = t, evaBaseUrl = string.IsNullOrWhiteSpace(u) ? evaBaseUrl : u }.Save();
             };
@@ -115,6 +129,17 @@ namespace AgentConsole.App
                 StartCoroutine(AutoStart());
             }
         }
+
+        /// <summary>
+        /// True where there are no threads and no file system beside the build (the WebGL player). The editor keeps the
+        /// normal path even with the WebGL target active, so editing and EditMode tests behave as on desktop.
+        /// </summary>
+        public static bool NoThreads =>
+#if UNITY_WEBGL && !UNITY_EDITOR
+            true;
+#else
+            false;
+#endif
 
         private IEnumerator AutoStart()
         {
@@ -140,6 +165,7 @@ namespace AgentConsole.App
             _models?.Pump();
             _session?.Pump();
             if (_transport == null) return;
+            _pumpedReplay?.Pump(Time.realtimeSinceStartupAsDouble); // no-op unless the replay is pumped
 
             // The one hand-off from the worker thread to the main thread. Nothing else touches the reducer.
             int n = 0;

@@ -130,10 +130,15 @@ namespace AgentConsole.Transport
             public readonly object Gate = new object();
             public CancellationTokenSource Cts;
             public bool Ended;
+
+            // Pumped mode only: the clock reading at the first Pump after the send, and the next step to emit.
+            public double StartSeconds = double.NaN;
+            public int Next;
         }
 
         private readonly double _speed;
         private readonly IReadOnlyList<ScriptStep> _steps;
+        private readonly bool _pumped;
         private readonly object _gate = new object();
         private Run _current;
 
@@ -141,9 +146,17 @@ namespace AgentConsole.Transport
 
         /// <param name="speed">Playback speed multiplier. 1 is the prototype's real timing.</param>
         /// <param name="memoryTree">Mix <see cref="MemoryScript"/> into the run. Off by default, so the run is the prototype's script unless asked.</param>
-        public ReplayTransport(double speed = 1.0, bool memoryTree = false)
+        /// <param name="pumped">
+        /// Play without any thread: <see cref="SendAsync"/> only queues the run and the host drives it by calling
+        /// <see cref="Pump"/> every frame. Needed where there is no thread pool (Unity WebGL: Task.Run and Task.Delay
+        /// never complete there). Off by default, so desktop keeps the threaded schedule it always had.
+        /// Rejected: a MonoBehaviour coroutine in App that walks <see cref="Script"/>. It would either pull UnityEngine
+        /// into Transport or duplicate the script, merge and speed handling in App.
+        /// </param>
+        public ReplayTransport(double speed = 1.0, bool memoryTree = false, bool pumped = false)
         {
             _speed = speed > 0 ? speed : 1.0;
+            _pumped = pumped;
             _steps = memoryTree ? Merge(Script, MemoryScript) : Script;
         }
 
@@ -174,9 +187,58 @@ namespace AgentConsole.Transport
                 EndRun(previous, emitStopped: false);
             }
 
-            // Task.Run so the schedule never sits on the caller's (main) thread or its sync context.
-            Task.Run(() => PlayAsync(run));
+            if (!_pumped)
+            {
+                // Task.Run so the schedule never sits on the caller's (main) thread or its sync context.
+                Task.Run(() => PlayAsync(run));
+            }
             return Task.FromResult(ReplayJobId);
+        }
+
+        /// <summary>
+        /// Pumped mode: emit every scripted step whose time has come, then the clean end once the script is done.
+        /// Call once per frame from the main thread with a monotonic clock in seconds. The run's time zero is the
+        /// first call after the send, so the schedule is the threaded one shifted by at most a frame. A no-op in the
+        /// default threaded mode, or with no run in flight.
+        /// </summary>
+        /// <returns>How many events were emitted by this call.</returns>
+        public int Pump(double nowSeconds)
+        {
+            if (!_pumped) return 0;
+            Run run;
+            lock (_gate)
+            {
+                run = _current;
+            }
+            if (run == null) return 0;
+
+            int emitted = 0;
+            lock (run.Gate)
+            {
+                if (run.Ended) return 0;
+                if (run.Cts.IsCancellationRequested)
+                {
+                    // The caller's token was cancelled: end quietly, as the threaded path does.
+                    run.Ended = true;
+                    run.Cts.Dispose();
+                    return 0;
+                }
+                if (double.IsNaN(run.StartSeconds)) run.StartSeconds = nowSeconds;
+                double elapsedMs = (nowSeconds - run.StartSeconds) * 1000.0 * _speed;
+                while (run.Next < _steps.Count && _steps[run.Next].AtMs <= elapsedMs)
+                {
+                    Emit(_steps[run.Next++].Event);
+                    emitted++;
+                }
+                if (run.Next >= _steps.Count)
+                {
+                    Emit(AgentEvent.RunEnded());
+                    emitted++;
+                    run.Ended = true;
+                    run.Cts.Dispose();
+                }
+            }
+            return emitted;
         }
 
         public override Task StopAsync(string jobId)
