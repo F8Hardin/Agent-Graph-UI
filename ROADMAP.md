@@ -74,6 +74,27 @@ looks as selectable styles, in the order Plasma Dome, Orbital Core, Hologram
 Wire. Plasma is the default; Hologram is the cheap style for the headset (one
 draw, no bloom).
 
+### Next up, in this order (set 2026-11-10)
+
+This list is the queue. The top item is built first; nothing below it starts
+until it ships. The phase table further down is the map, not the order.
+
+| # | Card | What | Why it is here |
+|---|---|---|---|
+| 1 | UNI-31 | The main EVA node is clickable and grabbable like every other bubble | Called out as the priority. Today a press on it falls through to camera orbit, because the agent is the layout's pinned anchor at the origin. |
+| 2 | UNI-37 | Edge animation as a call travels to its tool; the tool (and its edge) stays highlighted until that call completes | Also called out as the priority. The hold exists for the node (pinned until `tool_end` for the same `run_id`) but is unverified against live EVA, and the travel is a single bead. |
+| 3 | UNI-38 | Edges are real 3D tubes, not flat ribbons | UNI-30 shaded a camera-facing ribbon to look round; it still reads flat. Real tube geometry in the one edge mesh, one draw call. |
+| 4 | UNI-39 | Physics: dragging a node moves only what is linked to it; children follow; a released node stays where it was dropped | Today a drag re-heats one global alpha, so every node drifts under repulsion, and the tier "shell" spring plus fixed link rest lengths pull a released node back. |
+| 5 | UNI-40 | Node size from subtree size: the agent biggest, tool-heavy MCP servers large | Makes the graph show what takes up context. Radius is fixed per tier today. |
+| 6 | UNI-20 | Graph built from the live `/tools` catalogue, with real server status | Fixes "fates_desktop is always red": the graph is seeded from the hard-coded `SampleInventory`, where the desktop and github are written as errored with no tools and the offline MacBook as connected. Nothing reads live status. |
+
+After those: backdrop controls (UNI-32), spacey backdrop and white-theme
+centre (UNI-29), high-quality fog (UNI-33), better plasma orbs (UNI-34), the
+UI pass, then the web and XR builds (UNI-35, UNI-36). Sounds with a mute
+toggle (UNI-41) are noted for later.
+
+### Phase map
+
 | Phase | What | Cards | State |
 |---|---|---|---|
 | 1 | Audit and art direction | - | done |
@@ -81,10 +102,11 @@ draw, no bloom).
 | 3 | Backdrop and depth: black void, parallax layers, scene background split from UI colour, white page with a greyish centre | UNI-29, WEB-3 | next |
 | 3b | Backdrop controls: fog toggle; particle field distance, amount, colour, min/max size, inner/outer spawn radius | UNI-32 | next |
 | 3c | High-quality, fog-like cloud instead of flat scene fog plus motes | UNI-33 | open |
-| 4 | Edges: glass tubes matching the nodes; traversal pulses | UNI-30 | shipped, in review |
-| 5 | Motion: grab the centre node, free-floating bounce, spread by subtree size, camera focus and lock | UNI-31, 15, 16, 17, 19 | UNI-31 next |
+| 4 | Edges: thicker and rim-lit (shipped), real tube geometry, traversal animation with the highlight held until the call returns | UNI-30, 37, 38 | UNI-30 shipped; 37, 38 queued |
+| 5 | Motion and layout: grab the centre node, local drag physics, node size and spread by subtree size, camera focus and lock | UNI-31, 39, 40, 15, 16, 17, 19 | UNI-31 first |
 | 6 | UI pass: islands, chat, tool feed, settings and top bar in one visual language | UNI-2, 7, 8, 9, 10, 11 | open |
 | 7 | Performance and headset check | UNI-36 | open |
+| 8 | Sound: thinking, data moving, tool calls; mute in the menu | UNI-41 | later |
 
 Known rough edges in what shipped, to close before these cards move to Done:
 
@@ -92,6 +114,7 @@ Known rough edges in what shipped, to close before these cards move to Done:
 - Error/down, memory and selected states are implemented in each style but
   have not been seen on screen.
 - Hologram Wire labels are hard to read over the wires at the default framing.
+- The edges are shaded ribbons, not tubes (UNI-38).
 - Orbital Core's core does not yet grow with call count (UNI-18).
 - Plasma Dome's motes are shader dots; the user wants higher-quality orb
   assets (UNI-34), likely a Blender-rendered sprite or flipbook. His
