@@ -58,6 +58,13 @@ namespace AgentConsole.View
         private float _alpha;
         private int _restTicks;
 
+        // The node every tier shell is measured from. It used to be the origin, which is only true while nobody
+        // moves the agent; once the centre node can be grabbed and dropped, "shell distance from the origin" would
+        // drag the whole graph back round the world's zero instead of round the agent. Rejected: keeping the
+        // agent at the origin and translating the view root instead, which would put every dropped node's world
+        // position out of step with what the user sees and break the drag math for the other nodes.
+        private int _anchor;
+
         public ForceLayout3D(LayoutSettings settings)
         {
             _s = settings ?? new LayoutSettings();
@@ -68,12 +75,23 @@ namespace AgentConsole.View
         public float Alpha => _alpha;
         public bool IsSettled => _alpha <= _s.AlphaMin;
         public Vector3 PositionOf(int i) => _pos[i];
+
+        /// <summary>Index of the anchor node (the agent). Defaults to 0, the tier-0 node GraphView adds first.</summary>
+        public int AnchorIndex
+        {
+            get => _anchor;
+            set => _anchor = value;
+        }
+
+        /// <summary>Where the anchor currently is; the origin while the layout is empty.</summary>
+        public Vector3 AnchorPosition => _anchor >= 0 && _anchor < _n ? _pos[_anchor] : Vector3.zero;
         public float RadiusOf(int i) => _rad[i];
 
         public void Clear()
         {
             _n = 0;
             _m = 0;
+            _anchor = 0;
             _alpha = 0f;
             _restTicks = 0;
         }
@@ -134,6 +152,9 @@ namespace AgentConsole.View
         public void SetPinned(int i, bool pinned)
         {
             if (i < 0 || i >= _n) return;
+            // A dropped anchor stays put. The old idea of a home spring that returns it to the origin is rejected
+            // (the user wants a dropped node to stay where it was dropped), so nothing may unpin the anchor either.
+            if (i == _anchor && !pinned) return;
             _pinned[i] = pinned;
             _vel[i] = Vector3.zero;
             _restTicks = 0;
@@ -192,13 +213,15 @@ namespace AgentConsole.View
                 _force[b] -= fv;
             }
 
+            Vector3 anchor = AnchorPosition;
             for (int i = 0; i < _n; i++)
             {
-                if (_pinned[i] || _tier[i] == 0) continue;
+                if (_pinned[i] || _tier[i] == 0 || i == _anchor) continue;
                 float target = _tier[i] == 1 ? _s.ServerShell : _s.ToolShell;
-                float r = _pos[i].magnitude;
+                Vector3 rel = _pos[i] - anchor;
+                float r = rel.magnitude;
                 if (r < 1e-4f) continue;
-                _force[i] += _pos[i] * ((target - r) * _s.ShellStiffness / r);
+                _force[i] += rel * ((target - r) * _s.ShellStiffness / r);
             }
 
             float maxSpeed = 0f;

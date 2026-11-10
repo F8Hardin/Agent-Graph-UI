@@ -156,7 +156,8 @@ public void SetLocked(bool locked)
 
         private void ApplyFit()
         {
-            _pivotT = Vector3.zero;
+            // Round the agent, not the origin: the agent can be dragged away and the graph comes with it.
+            _pivotT = _graph != null ? _graph.GraphCenter : Vector3.zero;
             _frameDist = FrameDistance(_graph != null ? _graph.BoundingRadius : 10f) * fitMargin;
             _distT = Mathf.Clamp(_frameDist * _zoomMul, minDistance, maxDistance);
         }
