@@ -29,6 +29,25 @@ namespace AgentConsole.Domain
         /// <summary>A tool ended or errored. Argument is the tool node id.</summary>
         public event Action<string> NodeResolved;
 
+        /// <summary>
+        /// A tool call started: the whole card, with its input. Additive, raised right after <see cref="NodeFired"/>. NodeFired
+        /// carries only a node id, which cannot tell concurrent calls of one tool apart; readers that need the call itself
+        /// (the memory tracker) take it from here instead of searching the tool list.
+        /// </summary>
+        public event Action<ToolCall> ToolStarted;
+
+        /// <summary>
+        /// A tool call ended or errored: the whole card, with its Status and Output. Additive, raised right after
+        /// <see cref="NodeResolved"/>, once per call (a duplicate end is dropped before it gets here).
+        /// </summary>
+        public event Action<ToolCall> ToolResolved;
+
+        /// <summary>
+        /// The conversation was replaced or emptied: another chat was opened, or New chat. Additive. Not raised by
+        /// <see cref="BeginTurn"/>, which continues the same conversation. Per-session readers (the memory tree) reset here.
+        /// </summary>
+        public event Action ConversationCleared;
+
         public event Action<Phase> PhaseChanged;
         public event Action TranscriptChanged;
         public event Action ToolsChanged;
@@ -182,6 +201,7 @@ namespace AgentConsole.Domain
             ClearRunState(keepMeta: true);
             State.RunInFlight = false;
             ToolsChanged?.Invoke();
+            ConversationCleared?.Invoke();
         }
 
         private void ClearRunState(bool keepMeta = false)
@@ -233,6 +253,7 @@ namespace AgentConsole.Domain
             MetaChanged?.Invoke();
             TranscriptChanged?.Invoke();
             ToolsChanged?.Invoke();
+            ConversationCleared?.Invoke();
         }
 
         private void ApplyCallback(in AgentEvent ev)
@@ -286,6 +307,7 @@ namespace AgentConsole.Domain
 
             SetPhase(node.IsMemory ? Phase.Memory : Phase.ToolCall);
             NodeFired?.Invoke(node.Id);
+            ToolStarted?.Invoke(call);
             ToolsChanged?.Invoke();
         }
 
@@ -324,6 +346,7 @@ namespace AgentConsole.Domain
 
             SetPhase(PhaseForRunningTools());
             NodeResolved?.Invoke(call.NodeId);
+            ToolResolved?.Invoke(call);
             ToolsChanged?.Invoke();
         }
 

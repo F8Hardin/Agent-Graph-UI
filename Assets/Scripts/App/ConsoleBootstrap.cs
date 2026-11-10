@@ -52,6 +52,7 @@ namespace AgentConsole.App
         private ConsoleReducer _reducer;
         private ModelController _models;
         private ChatSession _session;
+        private MemoryTracker _memory;
 
         public ConsoleReducer Reducer => _reducer;
         public IAgentTransport Transport => _transport;
@@ -78,7 +79,8 @@ namespace AgentConsole.App
 
             if (transportKind == TransportKind.Replay)
             {
-                _transport = new ReplayTransport(replaySpeed);
+                // memoryTree: the demo run includes a memory sequence, so the session memory tree can be watched growing offline.
+                _transport = new ReplayTransport(replaySpeed, memoryTree: true);
                 _store = SampleChats();
                 view.DefaultPrompt = ReplayPrompt;
             }
@@ -96,6 +98,8 @@ namespace AgentConsole.App
             // The send pipeline, queue and chat list: the one object the View talks to, so it never sees a transport.
             _session = new ChatSession(_reducer, _transport, _store);
             view.Bind(_reducer, _models, _session);
+            _memory = new MemoryTracker(_reducer); // the session memory tree: grown from successful vault calls, cleared per chat
+            view.BindMemory(_memory);
             if (_models.IsAvailable) _models.Refresh(); // async: a slow /models never holds a frame
             _session.SelectionChanged += id => view.LastChatId = id;
             view.SetConnection(transportKind.ToString(), evaBaseUrl);
@@ -148,6 +152,7 @@ namespace AgentConsole.App
 
         private void OnDestroy()
         {
+            _memory?.Dispose();
             _session?.Dispose();
             _models?.Dispose();
             (_transport as IDisposable)?.Dispose();

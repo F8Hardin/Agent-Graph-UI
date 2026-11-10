@@ -335,22 +335,8 @@ namespace AgentConsole.View
             for (int i = 0; i < _views.Count; i++) _views[i].ApplyTheme(_tokens);
             Material m = edgeMaterial;
             if (_edges != null) m = _edges.Material;
-            if (m != null)
-            {
-                // The edges take the node colours of the tier they lead to, so tube and dome read as one material.
-                // (Was Link/Link2, solved for minimum contrast: correct but so faint the edges vanished at a distance.)
-                Color l1 = _tokens.NSrv;
-                l1.a = 0.9f;
-                Color l2 = Color.Lerp(_tokens.NTool, _tokens.NSrv, 0.5f);
-                l2.a = 0.9f;
-                Color down = _tokens.Bad;
-                down.a = 0.7f;
-                m.SetColor("_LinkColor1", l1);
-                m.SetColor("_LinkColor2", l2);
-                m.SetColor("_FlowColor", _tokens.Flow);
-                m.SetColor("_MemColor", _tokens.Mem);
-                m.SetColor("_DownColor", down);
-            }
+            // Shared with the memory tree's edges, so the two can never be coloured differently (EdgeTheme).
+            if (m != null) EdgeTheme.Apply(m, _tokens);
         }
 
         /// <summary>Copy layout positions to the spheres and rebuild the edge ribbons. Runs only while the layout is moving.</summary>

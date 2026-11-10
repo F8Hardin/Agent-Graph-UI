@@ -66,6 +66,65 @@ namespace AgentConsole.Transport
             new ScriptStep(13000, AgentEvent.LlmEnd())
         };
 
+        /// <summary>
+        /// A memory sequence that is mixed into the run when <c>memoryTree</c> is on, so the session memory tree can be seen
+        /// growing offline: a search with six hits across four folders, three reads of some of them, and a note written.
+        /// It overlaps the robinhood and restart calls the way concurrent calls do on a real run (each has its own run id),
+        /// and it sits in the gaps of the prototype's script rather than moving any of its events.
+        ///
+        /// Kept apart from <see cref="Script"/> on purpose: that list is pinned as "the prototype's script" by tests and by
+        /// the replay-order check, and a run without the flag plays it exactly as before. Rejected: editing Script itself.
+        /// Output shapes are the real ones EVA logs: the python repr of an MCP result wrapping the vault tool's JSON.
+        /// </summary>
+        public static readonly IReadOnlyList<ScriptStep> MemoryScript = new[]
+        {
+            new ScriptStep(5000, AgentEvent.ToolStart("memory__vault_search",
+                "{\"query\": \"trading notes, positions review\", \"limit\": 8}", "m1")),
+            new ScriptStep(5600, AgentEvent.ToolEnd("memory__vault_search", SearchOutput(
+                "trading notes, positions review",
+                "Trading/2026-10-29.md", "Trading/Playbook.md", "Projects/Trading Bot.md",
+                "Projects/Eva AI.md", "Engineering/Roadmap.md", "Eva/eva.md"), "m1")),
+            new ScriptStep(5700, AgentEvent.ToolStart("memory__vault_read",
+                "{\"path\": \"Projects/Trading Bot.md\"}", "m2")),
+            new ScriptStep(6050, AgentEvent.ToolEnd("memory__vault_read", ReadOutput(
+                "Projects/Trading Bot.md", "Trading Bot", "project"), "m2")),
+            new ScriptStep(7000, AgentEvent.ToolStart("memory__vault_read",
+                "{\"path\": \"Trading/Playbook.md\"}", "m3")),
+            new ScriptStep(7400, AgentEvent.ToolEnd("memory__vault_read", ReadOutput(
+                "Trading/Playbook.md", "Playbook", "reference"), "m3")),
+            new ScriptStep(8300, AgentEvent.ToolStart("memory__vault_read",
+                "{\"path\": \"Engineering/Roadmap.md\"}", "m4")),
+            new ScriptStep(8800, AgentEvent.ToolEnd("memory__vault_read", ReadOutput(
+                "Engineering/Roadmap.md", "Roadmap", "moc"), "m4")),
+            new ScriptStep(9250, AgentEvent.ToolStart("memory__vault_write_note",
+                "{\"path\": \"Trading/Reviews/2026-11-02 Positions Review.md\", \"content\": \"# Positions review\"}", "m5")),
+            new ScriptStep(9450, AgentEvent.ToolEnd("memory__vault_write_note", WrittenOutput(
+                "Trading/Reviews/2026-11-02 Positions Review.md"), "m5"))
+        };
+
+        private static string Wrap(string json) => "content=[{'type': 'text', 'text': '" + json + "'}]";
+
+        private static string SearchOutput(string query, params string[] paths)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.Append("{\"query\": \"").Append(query).Append("\", \"count\": ").Append(paths.Length).Append(", \"results\": [");
+            for (int i = 0; i < paths.Length; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                string file = paths[i].Substring(paths[i].LastIndexOf('/') + 1);
+                sb.Append("{\"path\": \"").Append(paths[i]).Append("\", \"title\": \"").Append(file.Substring(0, file.Length - 3))
+                  .Append("\", \"score\": ").Append((0.91 - i * 0.07).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append('}');
+            }
+            sb.Append("]}");
+            return Wrap(sb.ToString());
+        }
+
+        private static string ReadOutput(string path, string title, string type) =>
+            Wrap("{\"path\": \"" + path + "\", \"title\": \"" + title + "\", \"frontmatter\": {\"type\": \"" + type +
+                 "\", \"owner\": \"eva\", \"status\": \"active\", \"created\": \"2026-08-04\"}, \"content\": \"# " + title + "\"}");
+
+        private static string WrittenOutput(string path) => Wrap("{\"path\": \"" + path + "\", \"written\": true}");
+
         private sealed class Run
         {
             public readonly object Gate = new object();
@@ -74,15 +133,31 @@ namespace AgentConsole.Transport
         }
 
         private readonly double _speed;
+        private readonly IReadOnlyList<ScriptStep> _steps;
         private readonly object _gate = new object();
         private Run _current;
 
         public override IReadOnlyCollection<string> Capabilities => CapabilityList;
 
         /// <param name="speed">Playback speed multiplier. 1 is the prototype's real timing.</param>
-        public ReplayTransport(double speed = 1.0)
+        /// <param name="memoryTree">Mix <see cref="MemoryScript"/> into the run. Off by default, so the run is the prototype's script unless asked.</param>
+        public ReplayTransport(double speed = 1.0, bool memoryTree = false)
         {
             _speed = speed > 0 ? speed : 1.0;
+            _steps = memoryTree ? Merge(Script, MemoryScript) : Script;
+        }
+
+        /// <summary>Both lists in time order. A tie keeps the first list's event first, so the prototype's script never loses its place.</summary>
+        public static IReadOnlyList<ScriptStep> Merge(IReadOnlyList<ScriptStep> first, IReadOnlyList<ScriptStep> second)
+        {
+            List<ScriptStep> merged = new List<ScriptStep>(first.Count + second.Count);
+            int a = 0, b = 0;
+            while (a < first.Count || b < second.Count)
+            {
+                bool takeFirst = b >= second.Count || (a < first.Count && first[a].AtMs <= second[b].AtMs);
+                merged.Add(takeFirst ? first[a++] : second[b++]);
+            }
+            return merged;
         }
 
         public override Task<string> SendAsync(string chatId, string prompt, CancellationToken ct)
@@ -152,7 +227,7 @@ namespace AgentConsole.Transport
             Stopwatch clock = Stopwatch.StartNew();
             try
             {
-                foreach (ScriptStep step in Script)
+                foreach (ScriptStep step in _steps)
                 {
                     double waitMs = step.AtMs / _speed - clock.Elapsed.TotalMilliseconds;
                     if (waitMs > 1)

@@ -33,6 +33,11 @@ namespace AgentConsole.View
             public bool showModel;
             public float uiScale;
             public string nodeStyle;
+
+            // Stored inverted. JsonUtility reads an absent bool as false, so a blob saved before this option existed would
+            // turn the tree OFF, against its default of on. "Hidden" absent = false = shown. Rejected: a showMemoryTree flag
+            // plus a version check, which is more code to say the same thing.
+            public bool hideMemoryTree;
         }
 
         // The web client's four display flags, with its defaults (types.ts): raw hidden, the rest shown.
@@ -46,6 +51,9 @@ namespace AgentConsole.View
 
         /// <summary>The node body style. Persisted by its stable key (NodeStyles.Key), so the enum can be reordered safely.</summary>
         public static NodeStyleKind NodeStyle = NodeStyles.Default;
+
+        /// <summary>Draw the session memory tree in the graph. On by default.</summary>
+        public static bool ShowMemoryTree = true;
 
         /// <summary>Raised when one of the display flags changes, so open panels repaint.</summary>
         public static event Action ViewChanged;
@@ -129,6 +137,7 @@ namespace AgentConsole.View
                 ShowRaw = v.showRaw;
                 ShowTimings = v.showTimings;
                 ShowModel = v.showModel;
+                ShowMemoryTree = !v.hideMemoryTree;
                 NodeStyle = NodeStyles.Parse(v.nodeStyle); // absent in blobs saved before this existed: the default
                 if (v.uiScale > 0f) UiScale = Mathf.Clamp(v.uiScale, 0.5f, 2f); // absent in blobs saved before this existed
             }
@@ -138,7 +147,7 @@ namespace AgentConsole.View
             }
         }
 
-        public static void SetView(bool? thinking = null, bool? raw = null, bool? timings = null, bool? model = null, float? uiScale = null, NodeStyleKind? nodeStyle = null)
+        public static void SetView(bool? thinking = null, bool? raw = null, bool? timings = null, bool? model = null, float? uiScale = null, NodeStyleKind? nodeStyle = null, bool? memoryTree = null)
         {
             if (thinking.HasValue) ShowThinking = thinking.Value;
             if (raw.HasValue) ShowRaw = raw.Value;
@@ -146,11 +155,13 @@ namespace AgentConsole.View
             if (model.HasValue) ShowModel = model.Value;
             if (uiScale.HasValue) UiScale = Mathf.Clamp(uiScale.Value, 0.5f, 2f);
             if (nodeStyle.HasValue) NodeStyle = nodeStyle.Value;
+            if (memoryTree.HasValue) ShowMemoryTree = memoryTree.Value;
             try
             {
                 PlayerPrefs.SetString(ViewKey, JsonUtility.ToJson(new ViewJson
                 {
-                    showThinking = ShowThinking, showRaw = ShowRaw, showTimings = ShowTimings, showModel = ShowModel, uiScale = UiScale, nodeStyle = NodeStyles.Key(NodeStyle)
+                    showThinking = ShowThinking, showRaw = ShowRaw, showTimings = ShowTimings, showModel = ShowModel, uiScale = UiScale, nodeStyle = NodeStyles.Key(NodeStyle),
+                    hideMemoryTree = !ShowMemoryTree
                 }));
             }
             catch (Exception)

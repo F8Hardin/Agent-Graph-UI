@@ -68,6 +68,14 @@ namespace AgentConsole.Domain
         /// </summary>
         public float Glow;
 
+        /// <summary>
+        /// A node that belongs to no <see cref="GraphModel"/>: the view-side decoration (the session memory tree) needs the
+        /// same node type to reuse the node styles, but must not be in the graph, the force layout or the reducer's links.
+        /// Rejected: adding these to the GraphModel, which would put them in the force layout the user wants left alone.
+        /// </summary>
+        public static GraphNode Detached(string id, string label, NodeTier tier, string server, bool isMemory) =>
+            new GraphNode(id, label, tier, server, isMemory, false, false);
+
         internal GraphNode(string id, string label, NodeTier tier, string server, bool isMemory, bool isDown, bool grafted)
         {
             Id = id;

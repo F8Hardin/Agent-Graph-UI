@@ -77,6 +77,7 @@ namespace AgentConsole.View
             AddToggle("Show raw events", () => ConsoleSettings.ShowRaw, v => ConsoleSettings.SetView(raw: v));
             AddToggle("Show timings", () => ConsoleSettings.ShowTimings, v => ConsoleSettings.SetView(timings: v));
             AddToggle("Show model", () => ConsoleSettings.ShowModel, v => ConsoleSettings.SetView(model: v));
+            AddToggle("Memory tree", () => ConsoleSettings.ShowMemoryTree, v => ConsoleSettings.SetView(memoryTree: v));
             Header("UI size");
             BuildScaleRow();
             Header("Node style");

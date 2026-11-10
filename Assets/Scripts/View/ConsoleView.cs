@@ -57,6 +57,19 @@ namespace AgentConsole.View
             ui.ConnectionSaved += (t, u) => ConnectionSaved?.Invoke(t, u);
         }
 
+        private MemoryTreeView _memoryTree;
+
+        /// <summary>
+        /// Show the session memory tree. The host owns the tracker (it is built from the reducer, which the host also owns),
+        /// the View only draws what the tracker's tree says. Call after <see cref="Bind"/>; calling again replaces the view.
+        /// </summary>
+        public void BindMemory(MemoryTracker tracker)
+        {
+            if (graph == null) graph = FindAnyObjectByType<GraphView>();
+            if (_memoryTree != null) Destroy(_memoryTree.gameObject);
+            _memoryTree = tracker != null ? MemoryTreeView.Attach(graph, tracker) : null;
+        }
+
         public string ThemeKey => theme != null ? theme.PresetKey : ThemePresets.DefaultKey;
         public void SetTheme(string key) { if (theme != null) theme.Apply(key); }
         public void SetCameraLocked(bool locked) { if (rig != null) rig.SetLocked(locked); }
