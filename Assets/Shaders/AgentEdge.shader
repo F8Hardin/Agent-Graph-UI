@@ -16,7 +16,9 @@ Shader "AgentConsole/Edge"
         _FlowColor ("Flow", Color) = (0.7, 1, 0.8, 1)
         _MemColor ("Memory Flow", Color) = (0.8, 1, 1, 1)
         _DownColor ("Down", Color) = (1, 0.37, 0.34, 0.6)
-        _Width ("Width (world)", Float) = 0.05
+        _Width ("Width (world)", Float) = 0.3
+        _Fill ("Centre Fill Alpha", Range(0, 1)) = 0.5
+        _RimPower ("Rim Power", Range(0.5, 8)) = 2.2
         _PulseLength ("Pulse Length (world)", Float) = 0.45
     }
     SubShader
@@ -44,6 +46,8 @@ Shader "AgentConsole/Edge"
                 float4 _DownColor;
                 float _Width;
                 float _PulseLength;
+                float _Fill;
+                float _RimPower;
             CBUFFER_END
 
             struct Attributes
@@ -72,7 +76,12 @@ Shader "AgentConsole/Edge"
                 float3 viewWS = GetWorldSpaceViewDir(posWS);
                 float3 side = cross(dirWS, viewWS);
                 side *= rsqrt(max(dot(side, side), 1e-8));
-                float w = _Width * (1.0 + saturate(input.pulse.x) * 1.6);
+                float w = _Width * (1.0 + saturate(input.pulse.x) * 0.8);
+                // Never thinner than about two pixels: a far edge would otherwise fall under a pixel and flicker out (the floor scales with resolution so a 4K frame keeps the same apparent weight),
+                // which is how edges went missing at the default framing. World size of a pixel at this depth.
+                float4 cs0 = TransformWorldToHClip(posWS);
+                float px = cs0.w * 2.0 / (_ScreenParams.y * abs(UNITY_MATRIX_P[1][1]));
+                w = max(w, px * max(2.0, _ScreenParams.y / 540.0));
                 posWS += side * (input.uv0.y * 0.5 * w);
                 o.positionCS = TransformWorldToHClip(posWS);
                 o.uv0 = input.uv0;
@@ -108,8 +117,20 @@ Shader "AgentConsole/Edge"
                 col += flow * bead * 2.4;
                 a = saturate(a + bead);
 
-                float across = 1.0 - abs(i.uv0.y);
-                a *= smoothstep(0.0, 0.7, across);
+                // A glass tube, lit the way the node domes are: the ribbon's cross-section is treated as a cylinder seen
+                // side-on, so rho (0 centre, 1 edge) gives n.v = sqrt(1 - rho^2) and the same fresnel rim the spheres use.
+                // Clear down the middle, bright along both edges, one thin specular streak off-centre. Rejected: a real
+                // tube mesh per edge, which costs vertices and a second draw for what is a 1D profile.
+                float rho = abs(i.uv0.y);
+                float ndv = sqrt(saturate(1.0 - rho * rho));
+                float rim = pow(1.0 - ndv, _RimPower);
+                float body = _Fill + rim * (1.0 - _Fill);
+                float streak = exp(-pow((i.uv0.y + 0.42) / 0.10, 2.0)) * 0.35;
+                col *= 1.0 + rim * 1.2 + streak;
+                // A lit edge fills in, like a node whose glow rises; the bead is solid across the tube.
+                body = lerp(body, 1.0, saturate(hot * 0.75 + bead));
+                float aa = max(fwidth(rho), 1e-4);
+                a *= body * (1.0 - smoothstep(1.0 - aa * 1.5, 1.0, rho));
 
                 col = MixFog(col, i.fogFactor);
                 return half4(col, a);

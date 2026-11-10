@@ -8,6 +8,12 @@ namespace AgentConsole.View
         [Header("Node styles")]
         [Tooltip("Template for the Plasma Dome body. Filled by Agent Console/Build Scene.")]
         [SerializeField] private Material plasmaMaterial;
+        [Tooltip("Template for the Orbital Core body. Filled by Agent Console/Build Scene.")]
+        [SerializeField] private Material orbitalMaterial;
+        [Tooltip("Template for the Orbital Core ring and satellite quad. Filled by Agent Console/Build Scene.")]
+        [SerializeField] private Material orbitRingMaterial;
+        [Tooltip("Template for the Hologram Wire body. Filled by Agent Console/Build Scene.")]
+        [SerializeField] private Material hologramMaterial;
 
         private NodeStyleMaterials _styleMats;
         private NodeStyleKind _style = NodeStyles.Default;
@@ -16,7 +22,7 @@ namespace AgentConsole.View
 
         private void InitNodeStyles()
         {
-            _styleMats = new NodeStyleMaterials(plasmaMaterial);
+            _styleMats = new NodeStyleMaterials(plasmaMaterial, orbitalMaterial, orbitRingMaterial, hologramMaterial);
             _style = ConsoleSettings.NodeStyle;
         }
 

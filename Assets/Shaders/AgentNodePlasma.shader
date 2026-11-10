@@ -25,6 +25,7 @@ Shader "AgentConsole/NodePlasma"
         _MoteGain ("Mote Gain (HDR)", Range(0, 6)) = 2.6
         _Fill ("Centre Alpha", Range(0, 1)) = 0.2
         _LitFill ("Centre Alpha When Lit", Range(0, 1)) = 0.62
+        _RimFill ("Body Alpha At The Rim", Range(0, 1)) = 0.62
         _RimWidth ("Rim Width (fraction of radius)", Range(0.01, 0.2)) = 0.05
         _Glow ("Glow", Range(0, 1)) = 0
         _Selected ("Selected", Range(0, 1)) = 0
@@ -61,6 +62,7 @@ Shader "AgentConsole/NodePlasma"
                 float _MoteGain;
                 float _Fill;
                 float _LitFill;
+                float _RimFill;
                 float _RimWidth;
                 float _Glow;
                 float _Selected;
@@ -128,16 +130,16 @@ Shader "AgentConsole/NodePlasma"
                 // ---- body: clearest at the centre, denser toward the rim
                 float fillC = lerp(_Fill, _LitFill, glow);
                 float3 bodyCol = lerp(_BaseColor.rgb, _HotColor.rgb, glowC);
-                float bodyA = lerp(fillC, 0.62, pow(rho, 2.6));
+                float bodyA = lerp(fillC, _RimFill, pow(rho, 2.6));
                 float3 col = bodyCol;
                 float a = bodyA;
 
                 // ---- inner glow, offset toward the upper left like a lit glass ball
-                float2 gc = float2(-0.30, 0.32);
+                float2 gc = float2(-0.38, 0.40);
                 float2 gd = p - gc;
                 float ig = exp(-dot(gd, gd) * 3.4);
                 float3 igCol = lerp(_InnerColor.rgb, _HotColor.rgb, glowC) * _InnerGain * (1.0 + glow * 0.9);
-                Over(col, a, igCol, ig * (0.30 + 0.45 * glow));
+                Over(col, a, igCol, ig * (0.24 + 0.45 * glow));
 
                 // ---- motes, drifting inside the ball
                 float moteSum = 0.0;

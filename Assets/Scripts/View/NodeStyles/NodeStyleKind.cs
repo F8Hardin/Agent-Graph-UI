@@ -45,11 +45,23 @@ namespace AgentConsole.View
         }
 
         /// <summary>
-        /// False while the kind still maps to another style's visual (see NodeStyleRegistry). The picker marks those
+        /// False while a kind still maps to another style's visual (see NodeStyleRegistry). The picker marks those
         /// "(soon)" rather than hiding them, so the saved key and the menu are already final when they land.
-        /// Flip a kind to true in the same change that gives it its own NodeVisual.
+        /// All three styles have their own visual now; a future kind starts at false (switch on the kind) and flips
+        /// in the same change that gives it its own NodeVisual.
         /// </summary>
-        public static bool IsImplemented(NodeStyleKind kind) => kind == NodeStyleKind.PlasmaDome;
+        public static bool IsImplemented(NodeStyleKind kind)
+        {
+            switch (kind)
+            {
+                case NodeStyleKind.PlasmaDome:
+                case NodeStyleKind.OrbitalCore:
+                case NodeStyleKind.HologramWire:
+                    return true;
+                default:
+                    return false;
+            }
+        }
 
         /// <summary>The text on the picker button.</summary>
         public static string PickerLabel(NodeStyleKind kind) =>

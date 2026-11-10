@@ -24,6 +24,7 @@ namespace AgentConsole.View
         private static readonly int IdMoteGain = Shader.PropertyToID("_MoteGain");
         private static readonly int IdFill = Shader.PropertyToID("_Fill");
         private static readonly int IdLitFill = Shader.PropertyToID("_LitFill");
+        private static readonly int IdRimFill = Shader.PropertyToID("_RimFill");
         private static readonly int IdAlpha = Shader.PropertyToID("_Alpha");
         private static readonly int IdGlow = Shader.PropertyToID("_Glow");
         private static readonly int IdSelected = Shader.PropertyToID("_Selected");
@@ -41,12 +42,20 @@ namespace AgentConsole.View
         // How much of the node's own colour the centre of the dome shows. The centre stays the clearest part so the
         // label reads; the shader densifies toward the rim. Light themes get a denser body because their stage is
         // pale and an airy dome would vanish into it.
-        private const float FillDim = 0.20f;
-        private const float FillBright = 0.16f;
+        private const float FillDim = 0.06f;
+        private const float FillBright = 0.05f;
         private const float FillDimLight = 0.30f;
         private const float FillBrightLight = 0.52f;
-        private const float LitFillDark = 0.62f;
+        private const float LitFillDark = 0.40f;
         private const float LitFillLight = 0.70f;
+        // Body alpha at the rim. On dark themes it is held low so the dome reads as tinted glass that glows the accent
+        // colour; at 0.62 it was a milky grey-white shell (reviewed in play mode on the dark themes).
+        private const float RimFillDark = 0.30f;
+        private const float RimFillLight = 0.62f;
+        // How far the dark-theme colours move from the tier colour toward the theme accent. The tier colours of servers
+        // and tools are dim mixes toward the background; lightening THOSE with white is what made the old dome grey.
+        // Mixing toward the accent first keeps the hue, and white is only a small final lift.
+        private const float AccentPull = 0.55f;
         // The inner glow adds a little colour to the centre on top of the fill; the ink backdrop includes it.
         private const float CentreGlowBias = 0.10f;
 
@@ -54,6 +63,7 @@ namespace AgentConsole.View
         private readonly float _seed;
         private float _fill = FillDim;
         private float _litFill = LitFillDark;
+        private float _rimFill = RimFillDark;
         private float _phase;
         private float _selected;
         private float _selectedTarget;
@@ -64,23 +74,12 @@ namespace AgentConsole.View
             : base(node, radius, root, sphere, template)
         {
             _down = node.IsDown;
-            _seed = SeedOf(node.Id);
+            _seed = NodeStyleMath.SeedOf(node.Id);
             Mat.SetFloat(IdSeed, _seed);
             // Fewer motes in a small sphere: ten dots in a 0.8 radius tool would be a noise field.
             Mat.SetFloat(IdMoteCount, node.Tier == NodeTier.Agent ? 10f : node.Tier == NodeTier.Server ? 8f : 6f);
             // Start each node at a different phase so identical tools do not breathe in unison.
             _phase = _seed * 0.37f;
-        }
-
-        /// <summary>Stable per-node value in [0, 97). FNV-1a over the id (string.GetHashCode differs between runs).</summary>
-        private static float SeedOf(string id)
-        {
-            uint h = 2166136261u;
-            if (id != null)
-            {
-                for (int i = 0; i < id.Length; i++) h = (h ^ id[i]) * 16777619u;
-            }
-            return (h % 9700u) * 0.01f;
         }
 
         public override void ApplyTheme(ThemeTokens t)
@@ -90,15 +89,18 @@ namespace AgentConsole.View
             bool bright = ThemeTokens.Lum(b) > 0.5f;
             _fill = t.Dark ? (bright ? FillBright : FillDim) : (bright ? FillBrightLight : FillDimLight);
             _litFill = t.Dark ? LitFillDark : LitFillLight;
+            _rimFill = t.Dark ? RimFillDark : RimFillLight;
 
             Color rim, inner, mote;
             float rimGain, innerGain, moteGain;
             if (t.Dark)
             {
-                // Additive-looking: pale, HDR (>1) so the existing bloom turns rim and motes into a halo.
-                rim = ThemeTokens.Mix(b, Color.white, 0.55f);
-                inner = ThemeTokens.Mix(b, Color.white, 0.30f);
-                mote = ThemeTokens.Mix(b, Color.white, 0.78f);
+                // Additive-looking: HDR (>1) so the existing bloom turns rim and motes into a halo. Accent first, white last.
+                Color tint = ThemeTokens.Mix(b, t.NAgent, AccentPull);
+                b = tint;
+                rim = ThemeTokens.Mix(tint, Color.white, 0.22f);
+                inner = ThemeTokens.Mix(t.NAgent, Color.white, 0.10f);
+                mote = ThemeTokens.Mix(t.NAgent, Color.white, 0.45f);
                 rimGain = 2.3f;
                 innerGain = 1.5f;
                 moteGain = 2.6f;
@@ -114,7 +116,9 @@ namespace AgentConsole.View
                 moteGain = 1f;
             }
             Mat.SetColor(IdBase, b);
-            Mat.SetColor(IdHot, hot);
+            // The lit colour on a dark theme is the accent with only a small lift. The tier hot colour is 60% white, which
+            // made every running node read as a milky mint bulb; bloom already adds the white.
+            Mat.SetColor(IdHot, t.Dark && !Node.IsDown && !Node.IsMemory ? ThemeTokens.Mix(t.NAgent, Color.white, 0.2f) : hot);
             Mat.SetColor(IdRim, rim);
             Mat.SetColor(IdInner, inner);
             Mat.SetColor(IdMote, mote);
@@ -123,6 +127,7 @@ namespace AgentConsole.View
             Mat.SetFloat(IdMoteGain, moteGain);
             Mat.SetFloat(IdFill, _fill);
             Mat.SetFloat(IdLitFill, _litFill);
+            Mat.SetFloat(IdRimFill, _rimFill);
             // A node that is down stays recognisable by its lower alpha, dim label and down-coloured edges.
             Mat.SetFloat(IdAlpha, _down ? 0.5f : 1f);
             _lastGlow = -1f;
@@ -130,11 +135,9 @@ namespace AgentConsole.View
 
         // The plain tier colour is the base. Memory and error tints live in the HOT colour, which the shader blends
         // in by glow, so they pulse in and decay with the glow instead of sticking to the node.
-        private Color BaseOf(ThemeTokens t) =>
-            Node.Tier == NodeTier.Agent ? t.NAgent : Node.Tier == NodeTier.Server ? t.NSrv : t.NTool;
+        private Color BaseOf(ThemeTokens t) => NodeStyleMath.BaseOf(t, Node.Tier);
 
-        private Color HotOf(ThemeTokens t) =>
-            Node.IsDown ? t.Bad : Node.IsMemory ? t.Mem : Node.Tier == NodeTier.Agent ? t.NHot : t.Flow;
+        private Color HotOf(ThemeTokens t) => NodeStyleMath.HotOf(t, Node);
 
         public override Color BackdropFor(ThemeTokens t, bool lit)
         {

@@ -33,6 +33,7 @@ Material:
     - _MoteCount: 8
     - _MoteGain: 2.6
     - _MotePhase: 0
+    - _RimFill: 0.62
     - _RimGain: 2.3
     - _RimWidth: 0.05
     - _Seed: 0

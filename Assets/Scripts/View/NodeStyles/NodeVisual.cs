@@ -15,6 +15,7 @@ namespace AgentConsole.View
     internal abstract class NodeVisual
     {
         protected readonly GraphNode Node;
+        protected readonly Transform Root;
         protected readonly float Radius;
         protected readonly Material Mat;
         private readonly GameObject _body;
@@ -22,6 +23,7 @@ namespace AgentConsole.View
         protected NodeVisual(GraphNode node, float radius, Transform root, Mesh sphere, Material template)
         {
             Node = node;
+            Root = root;
             Radius = radius;
             _body = new GameObject("Body");
             _body.transform.SetParent(root, false);
@@ -39,6 +41,12 @@ namespace AgentConsole.View
 
         /// <summary>Every frame. Allocation-free; time-based smoothing uses 1 - exp(-k*dt).</summary>
         public abstract void Render(float glow, float dt);
+
+        /// <summary>
+        /// Every frame, before Render, for a style that owns an extra renderer needing a camera-dependent placement (the
+        /// Orbital ring sorts by distance and must sit between its body and its label). Most styles ignore it.
+        /// </summary>
+        public virtual void Track(Vector3 camPos, float sortOffset) { }
 
         /// <summary>True while the node is being dragged: the body shows a brighter rim.</summary>
         public abstract void SetSelected(bool selected);

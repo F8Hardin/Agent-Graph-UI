@@ -421,10 +421,12 @@ namespace AgentConsole.View
             if (_edges != null) m = _edges.Material;
             if (m != null)
             {
-                Color l1 = _tokens.Link;
+                // The edges take the node colours of the tier they lead to, so tube and dome read as one material.
+                // (Was Link/Link2, solved for minimum contrast: correct but so faint the edges vanished at a distance.)
+                Color l1 = _tokens.NSrv;
                 l1.a = 0.9f;
-                Color l2 = _tokens.Link2;
-                l2.a = 0.8f;
+                Color l2 = Color.Lerp(_tokens.NTool, _tokens.NSrv, 0.5f);
+                l2.a = 0.9f;
                 Color down = _tokens.Bad;
                 down.a = 0.7f;
                 m.SetColor("_LinkColor1", l1);

@@ -199,6 +199,9 @@ namespace AgentConsole.View
         // WCAG's bar for body text. A label is small, so it gets the strict one.
         private const float InkContrast = 4.5f;
 
+        /// <summary>The least of its ink a label keeps under fog (see Render).</summary>
+        private const float LabelFogFloor = 0.8f;
+
         /// <summary>
         /// Whichever of font/background reads better on the backdrop, pushed toward black or white only as far as it
         /// takes to reach <see cref="InkContrast"/>. On a mid-tone backdrop (a light theme's translucent sphere over a
@@ -227,6 +230,7 @@ namespace AgentConsole.View
                 _ink = Color.Lerp(_inkRest, _inkGlow, Mathf.SmoothStep(0.08f, 0.4f, glow));
             }
 
+            _visual.Track(camPos, sortOffset);
             _visual.Render(glow, dt);
 
             // Lazy, damped billboard: frame-rate independent, and visibly trails a moving camera.
@@ -240,6 +244,11 @@ namespace AgentConsole.View
             if (fogOn)
             {
                 vis = Mathf.Exp(-fogDensity * Vector3.Distance(Root.position, camPos));
+                // Only part of the way: at the default framing the graph is ~65 units away and the raw factor leaves a
+                // label at about a quarter of its ink, which is a dark smudge on every style (reviewed in play mode).
+                // The body still fades fully, so depth still reads; the name stays legible. Rejected: no fog on text
+                // at all, which floats far labels over bodies that have faded away. Set the floor to 0 for the old look.
+                vis = LabelFogFloor + (1f - LabelFogFloor) * vis;
             }
             Color face = Color.Lerp(fogColor, _ink, vis);
             face.a = _down ? 0.55f : 1f;

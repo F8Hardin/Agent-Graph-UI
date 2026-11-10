@@ -26,7 +26,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _PulseLength: 0.45
-    - _Width: 0.05
+    - _Width: 0.3
     m_Colors:
     - _DownColor: {r: 1, g: 0.37254903, b: 0.3372549, a: 0.7}
     - _FlowColor: {r: 0.5815686, g: 0.9676471, b: 0.71313727, a: 1}

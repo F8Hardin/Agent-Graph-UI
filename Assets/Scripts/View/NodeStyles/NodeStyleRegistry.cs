@@ -11,18 +11,27 @@ namespace AgentConsole.View
     internal sealed class NodeStyleMaterials
     {
         public readonly Material Plasma;
+        public readonly Material Orbital;
+        public readonly Material OrbitRing;
+        public readonly Material Hologram;
 
-        public NodeStyleMaterials(Material plasma)
+        public NodeStyleMaterials(Material plasma, Material orbital, Material orbitRing, Material hologram)
         {
-            if (plasma == null)
-            {
-                // A scene built before this style existed has no material for it. Make one from the shader rather
-                // than throw on every node; Build Scene fixes the scene itself.
-                Shader s = Shader.Find("AgentConsole/NodePlasma");
-                if (s != null) plasma = new Material(s) { name = "AgentNodePlasma (fallback)" };
-                else Debug.LogError("[AgentConsole] No material for the Plasma Dome style and its shader was not found. Run Agent Console/Build Scene.");
-            }
-            Plasma = plasma;
+            Plasma = OrFallback(plasma, "AgentConsole/NodePlasma", "Plasma Dome");
+            Orbital = OrFallback(orbital, "AgentConsole/NodeOrbital", "Orbital Core");
+            OrbitRing = OrFallback(orbitRing, "AgentConsole/NodeOrbitRing", "Orbital Core ring");
+            Hologram = OrFallback(hologram, "AgentConsole/NodeHologram", "Hologram Wire");
+        }
+
+        // A scene built before a style existed has no material for it. Make one from the shader rather than throw on
+        // every node; Build Scene fixes the scene itself.
+        private static Material OrFallback(Material m, string shaderName, string what)
+        {
+            if (m != null) return m;
+            Shader s = Shader.Find(shaderName);
+            if (s != null) return new Material(s) { name = what + " (fallback)" };
+            Debug.LogError("[AgentConsole] No material for " + what + " and its shader was not found. Run Agent Console/Build Scene.");
+            return null;
         }
     }
 
@@ -33,11 +42,10 @@ namespace AgentConsole.View
         {
             switch (kind)
             {
-                // OrbitalCore and HologramWire are placeholders until their own visuals exist. They fall through to
-                // Plasma on purpose (rejected: throwing, or a flat fallback sphere) so a saved preference or a picker
-                // click on them is harmless. NodeStyles.IsImplemented marks them "(soon)" in the picker.
                 case NodeStyleKind.OrbitalCore:
+                    return new OrbitalCoreVisual(node, radius, root, sphere, mats.Orbital, mats.OrbitRing);
                 case NodeStyleKind.HologramWire:
+                    return new HologramWireVisual(node, radius, root, sphere, mats.Hologram);
                 case NodeStyleKind.PlasmaDome:
                 default:
                     return new PlasmaDomeVisual(node, radius, root, sphere, mats.Plasma);

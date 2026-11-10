@@ -35,6 +35,9 @@ namespace AgentConsole.Editor
 
             Material sphereMat = MakeMat(MatDir + "/AgentNodeSphere.mat", "AgentConsole/NodeSphere");
             Material plasmaMat = MakeMat(MatDir + "/AgentNodePlasma.mat", "AgentConsole/NodePlasma");
+            Material orbitalMat = MakeMat(MatDir + "/AgentNodeOrbital.mat", "AgentConsole/NodeOrbital");
+            Material orbitRingMat = MakeMat(MatDir + "/AgentNodeOrbitRing.mat", "AgentConsole/NodeOrbitRing");
+            Material hologramMat = MakeMat(MatDir + "/AgentNodeHologram.mat", "AgentConsole/NodeHologram");
             Material edgeMat = MakeMat(MatDir + "/AgentEdge.mat", "AgentConsole/Edge");
             Material particleMat = MakeMat(MatDir + "/AgentParticle.mat", "AgentConsole/Particle");
             VolumeProfile profile = MakeProfile(SettingsDir + "/AgentConsoleVolume.asset");
@@ -104,6 +107,9 @@ namespace AgentConsole.Editor
             Set(rig, "graphRoot", graphGo.transform);
             Set(graph, "sphereMaterial", sphereMat);
             Set(graph, "plasmaMaterial", plasmaMat);
+            Set(graph, "orbitalMaterial", orbitalMat);
+            Set(graph, "orbitRingMaterial", orbitRingMat);
+            Set(graph, "hologramMaterial", hologramMat);
             Set(graph, "edgeMaterial", edgeMat);
             Set(graph, "theme", theme);
             Set(graph, "viewCamera", cam);
