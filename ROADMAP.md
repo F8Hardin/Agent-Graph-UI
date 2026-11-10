@@ -7,8 +7,8 @@ Where this is, what ships next, and what is deferred. Phase 1 is the bar for
 
 Read this first; the phase sections below describe intent, this describes fact.
 
-`main` is at `288169d`, clean, pushed. 170 EditMode tests pass. The Windows build
-in `Builds/Windows` was made from that commit on 2026-11-09.
+`main` is at `16b1a42` plus docs, clean, pushed. 309 EditMode tests pass. The
+Windows build in `Builds/Windows` was made from that commit on 2026-11-10.
 
 Landed since v1:
 
@@ -36,6 +36,9 @@ Landed since v1:
   Settings. Three styles: Plasma Dome (default), Orbital Core, Hologram Wire.
   All motion is procedural in the shader, driven by a phase float
   accumulated in C#; no ParticleSystem per node.
+- **EVA node grabbable (UNI-31), session memory tree (UNI-22/23), live
+  inventory from `/tools` (UNI-20).** See the queue below for what is still
+  rough in each.
 - **Glass-tube edges (UNI-30).** Six times thicker, the same fresnel rim as
   the domes, a pixel-width floor that scales with resolution, colours from
   the node tier tokens.
@@ -74,26 +77,37 @@ looks as selectable styles, in the order Plasma Dome, Orbital Core, Hologram
 Wire. Plasma is the default; Hologram is the cheap style for the headset (one
 draw, no bloom).
 
-### Next up, in this order (set 2026-11-10)
+### Next up, in this order (set 2026-11-10, evening)
 
 This list is the queue. The top item is built first; nothing below it starts
 until it ships. The phase table further down is the map, not the order.
+"In review" means tests, editor play mode on the replay run and screenshots;
+none of it has been watched in a live EVA session or driven with a real mouse.
 
 | # | Card | What | Why it is here |
 |---|---|---|---|
-| done | UNI-31 | The main EVA node is clickable and grabbable like every other bubble | Shipped 5cdc02c, in review. The layout now anchors on the agent's position and a dropped agent stays put. Verified through the drag API, not yet by hand. |
-| 1 | UNI-22, UNI-23 | Memory tree: a growing tree of the memory files EVA accesses in a session. One vault root, folders as branches, notes as leaves; search hits appear dim, notes read or written light up | Moved to the front on 2026-11-10. Decided the same day: grow it from successful memory tool calls (`vault_search`, `vault_read`, `vault_write_note`, `vault_append`) rather than loading the whole vault, so no new EVA endpoint is needed (EVA-19 shelved). |
-| 2 | UNI-37 | Lightsaber edges: when a node is called, light extends along the edge toward it (agent, then server, then tool), holds for the whole call, and retracts when the call ends. The tool node stays highlighted until its call completes | Edges must glow as well as nodes. Today the edge gets one bead and a decaying heat value; only the node glow is held until `tool_end` for the same `run_id`, and that is unverified against live EVA. |
-| 3 | UNI-8 | Island docking: hover one island over another to join them into one island with its own drag handle; inner handles pull one out or reorder | Placed third by the user on 2026-11-10, after the memory graph and the saber edges. |
-| 4 | UNI-38 | Edges are real 3D rods (cylinders), not flat ribbons. Looser, string-like connections may follow as a second edge style | UNI-30 shaded a camera-facing ribbon to look round; it still reads flat. Real cylinder geometry in the one edge mesh, one draw call, with room for an edge-style switch. |
-| 5 | UNI-39 | Physics: a dropped node stays exactly where it is dropped; grabbing one node does not set the others floating; others move only through their connecting edges; children follow a moved parent | Observed: a dropped node is pulled toward other nodes. A drag re-heats one global alpha, so every node moves under repulsion, tier shell springs and fixed-rest link springs, and release unpins the node into those forces. Spreading by subtree size belongs to the initial placement only, not to a force that keeps acting. |
-| 6 | UNI-40 | Node size from subtree size: the agent biggest, tool-heavy MCP servers large; subtrees with several children placed more spread out when the graph is created | Makes the graph show what takes up context. Radius is fixed per tier today. |
-| 7 | UNI-20 | Graph built from the live `/tools` catalogue, with real server status | Fixes "fates_desktop is always red": the graph is seeded from the hard-coded `SampleInventory`, where the desktop and github are written as errored with no tools and the offline MacBook as connected. Nothing reads live status. |
+| in review | UNI-31 | EVA node grabbable and clickable; layout anchors on it | Shipped 5cdc02c. See UNI-47: the real-mouse drag is broken. |
+| in review | UNI-22, UNI-23 | Session memory tree, grown from successful vault tool calls | Shipped cda461a. Camera Fit ignores the tree. |
+| in review | UNI-20 | Graph built from EVA's live `GET /tools` | Shipped 16b1a42. Fixes the always-red desktop and the phantom MacBook: the sample inventory was being used for every transport. |
+| 1 | UNI-47 | Bug: grabbing EVA flings it into space. The bubble must follow the mouse in 2D; WASD moves it in depth with the camera following; WASD flies the camera freely unless typing | A shipped feature is broken in the build. UNI-31 was only checked through the drag API. |
+| 2 | UNI-42 | Chat parity with the web UI: tool calls inline in order, collapsible thinking and tool calls (both start collapsed), token count and the other metrics | Called high priority by the user: "reference the web interface heavily". Absorbs UNI-2 and UNI-6. |
+| 3 | UNI-43 | Tool calls island rows expand to full details like the web UI | Same parity push. |
+| 4 | UNI-45 | Bug: EVA's reply is sometimes cut off and continued in a second bubble | Not yet reproduced. |
+| 5 | UNI-46 | Select text in chat bubbles by dragging | With UNI-3 (copy/paste). |
+| 6 | UNI-44 | Delete chats from the console | EVA already has the endpoints. |
+| 7 | UNI-37 | Lightsaber edges: light extends toward the called node, holds for the call, retracts after | Edges must glow as well as nodes. |
+| 8 | UNI-8 | Island docking | Placed after the memory tree and saber edges by the user. |
+| 9 | UNI-38 | Edges are real 3D rods, not flat ribbons; string-like style later | Asked for three times. |
+| 10 | UNI-39 | Physics: a dropped node stays put; a drag moves only what is linked; children follow | Today a drag re-heats one global alpha. |
+| 11 | UNI-40 | Node size from subtree size; larger subtrees spread out at creation | Shows what takes up context. `/tools` now carries token estimates to drive it. |
 
 After those: backdrop controls (UNI-32), spacey backdrop and white-theme
 centre (UNI-29), high-quality fog (UNI-33), better plasma orbs (UNI-34), the
-UI pass, then the web and XR builds (UNI-35, UNI-36). Sounds with a mute
-toggle (UNI-41) are noted for later.
+rest of the UI pass, minimised islands (UNI-48), sounds with a mute toggle
+(UNI-41), XR (UNI-36).
+
+The web build (UNI-35) runs alongside this queue and is blocked on memory,
+see Platform targets.
 
 ### Phase map
 
@@ -135,7 +149,13 @@ Asked for 2026-11-09: a web build and an XR build, to test soon.
   plain .NET (`HttpClient`, worker threads), which the browser does not have,
   so it needs a second `IAgentTransport` built on `UnityWebRequest` or browser
   fetch, A look-only build on `ReplayTransport` can come
-  first. Graphics run in the visitor's browser; the server only serves the
+  first. State 2026-11-10: the thread-free replay path is in (`e627acb`),
+  but the WebGL player build has failed twice: the IL2CPP/emscripten compile
+  takes free commit from 16 GB to under 4 GB and the editor process dies.
+  It needs the desktop's pagefile raised (fixed at 12/24 GB) before it can
+  be built. Hosting plan once it builds: copy `Builds/WebGL` to the Ubuntu
+  server, serve with a pm2 static server on port 8090, add a dashboard card
+  with a link. Graphics run in the visitor's browser; the server only serves the
   files. Access is over Tailscale with a manually entered address; CORS, a
   public address and auth are noted for later scaling and ignored for now.
   This reopens the "Phones" decision below, which ruled WebGL out for
