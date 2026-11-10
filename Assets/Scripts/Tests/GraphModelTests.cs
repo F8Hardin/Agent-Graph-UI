@@ -65,7 +65,7 @@ namespace AgentConsole.Tests
                 else tools++;
             }
             Assert.AreEqual(1, agents);
-            Assert.AreEqual(9, servers);
+            Assert.AreEqual(7, servers);
             Assert.AreEqual(expectedTools, tools);
             Assert.AreEqual(servers + tools, g.Links.Count);
 
@@ -75,11 +75,31 @@ namespace AgentConsole.Tests
             Assert.IsTrue(memTool.IsMemory);
             Assert.IsTrue(g.TryGetNode("tool:robinhood__get_accounts", out GraphNode ordinary));
             Assert.IsFalse(ordinary.IsMemory);
+        }
 
-            Assert.IsTrue(g.TryGetNode("srv:github", out GraphNode down));
-            Assert.IsTrue(down.IsDown);
-            Assert.IsTrue(g.TryGetLink("agent", "srv:github", out GraphLink downLink));
-            Assert.IsTrue(downLink.IsDown);
+        // UNI-20: the demo graph used to show fates_desktop and github red and fates_macbook healthy, the reverse of the
+        // user's real machines, which read as a bug. The offline sample is now an "everything is up" picture.
+        [Test]
+        public void SampleInventory_ShowsNoRedNodes_AndNoMacbook_AndAnOnlineDesktop()
+        {
+            GraphModel g = Eva();
+            foreach (GraphNode n in g.Nodes) Assert.IsFalse(n.IsDown, n.Id);
+            foreach (GraphLink l in g.Links) Assert.IsFalse(l.IsDown, l.TargetId);
+            Assert.IsFalse(g.TryGetNode("srv:fates_macbook", out _));
+            Assert.IsFalse(g.TryGetNode("srv:github", out _));
+            Assert.IsTrue(g.TryGetNode("srv:fates_desktop", out GraphNode desktop));
+            Assert.IsFalse(desktop.IsDown);
+            Assert.IsTrue(g.TryGetNode("tool:fates_desktop__screenshot", out _), "the desktop has tools, not an empty cluster");
+            foreach (ServerInfo s in SampleInventory.Eva()) Assert.IsTrue(s.IsConnected, s.Name);
+        }
+
+        [Test]
+        public void SampleInventory_ServersTheReplayScriptCallAreAllInIt()
+        {
+            GraphModel g = Eva();
+            Assert.IsTrue(g.TryGetNode("tool:memory__vault_search", out _));
+            Assert.IsTrue(g.TryGetNode("tool:robinhood__get_equity_positions", out _));
+            Assert.IsTrue(g.TryGetNode("tool:fate_ubuntu_server__run_command", out _));
         }
 
         [Test]

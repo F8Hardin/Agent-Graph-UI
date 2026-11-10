@@ -10,28 +10,6 @@ namespace AgentConsole.Domain
         Tool = 2
     }
 
-    /// <summary>One MCP server in the inventory, with the names of its tools.</summary>
-    public sealed class ServerInfo
-    {
-        public const string KindMcp = "mcp";
-        public const string KindMemory = "memory";
-        public const string StatusConnected = "connected";
-        public const string StatusError = "error";
-
-        public string Name { get; }
-        public string Kind { get; }
-        public string Status { get; }
-        public IReadOnlyList<string> Tools { get; }
-
-        public ServerInfo(string name, string kind, string status, params string[] tools)
-        {
-            Name = name;
-            Kind = string.IsNullOrEmpty(kind) ? KindMcp : kind;
-            Status = string.IsNullOrEmpty(status) ? StatusConnected : status;
-            Tools = tools ?? Array.Empty<string>();
-        }
-    }
-
     /// <summary>A tool name split into its server and bare tool parts.</summary>
     public readonly struct ToolRef
     {
@@ -59,6 +37,13 @@ namespace AgentConsole.Domain
 
         public bool IsDown { get; }
 
+        /// <summary>
+        /// A server, or one of its tools, that EVA has paused. Carried so a later card can dim it; nothing draws it
+        /// differently yet. Mutable (internal set) because a pause toggle changes it without a rebuild, and a rebuild
+        /// would throw away the layout the user arranged.
+        /// </summary>
+        public bool IsPaused { get; internal set; }
+
         /// <summary>True if the node was not in the inventory and was added on first use.</summary>
         public bool Grafted { get; }
 
@@ -76,8 +61,9 @@ namespace AgentConsole.Domain
         public static GraphNode Detached(string id, string label, NodeTier tier, string server, bool isMemory) =>
             new GraphNode(id, label, tier, server, isMemory, false, false);
 
-        internal GraphNode(string id, string label, NodeTier tier, string server, bool isMemory, bool isDown, bool grafted)
+        internal GraphNode(string id, string label, NodeTier tier, string server, bool isMemory, bool isDown, bool grafted, bool isPaused = false)
         {
+            IsPaused = isPaused;
             Id = id;
             Label = label;
             Tier = tier;
@@ -172,10 +158,11 @@ namespace AgentConsole.Domain
                     bool down = string.Equals(s.Status, ServerInfo.StatusError, StringComparison.OrdinalIgnoreCase);
                     bool mem = s.Kind == ServerInfo.KindMemory;
                     string sid = ServerId(s.Name);
-                    AddNode(new GraphNode(sid, s.Name, NodeTier.Server, s.Name, mem, down, false), false);
+                    AddNode(new GraphNode(sid, s.Name, NodeTier.Server, s.Name, mem, down, false, s.Paused), false);
                     AddLink(new GraphLink(AgentId, sid, NodeTier.Server, down), false);
-                    foreach (string t in s.Tools)
+                    foreach (ToolInfo info in s.ToolDetails)
                     {
+                        string t = info.Name;
                         if (string.IsNullOrEmpty(t))
                         {
                             continue;
@@ -190,13 +177,42 @@ namespace AgentConsole.Domain
                         {
                             continue;
                         }
-                        AddNode(new GraphNode(tid, t, NodeTier.Tool, s.Name, mem, false, false), false);
+                        AddNode(new GraphNode(tid, t, NodeTier.Tool, s.Name, mem, false, false, s.Paused || info.Paused), false);
                         AddLink(new GraphLink(sid, tid, NodeTier.Tool, false), false);
                     }
                 }
             }
 
             Rebuilt?.Invoke();
+        }
+
+        /// <summary>
+        /// Update the paused flags of nodes already in the graph from a newer inventory, without a rebuild. A pause
+        /// toggle is not a change of shape, and a rebuild resets the layout and the user's hand-placed nodes.
+        /// Servers and tools the graph does not have are ignored. Returns true if any flag changed.
+        /// </summary>
+        public bool ApplyPaused(IEnumerable<ServerInfo> inventory)
+        {
+            bool changed = false;
+            if (inventory == null) return false;
+            foreach (ServerInfo s in inventory)
+            {
+                if (s == null || string.IsNullOrEmpty(s.Name)) continue;
+                if (_byId.TryGetValue(ServerId(s.Name), out GraphNode srv) && srv.IsPaused != s.Paused)
+                {
+                    srv.IsPaused = s.Paused;
+                    changed = true;
+                }
+                foreach (ToolInfo info in s.ToolDetails)
+                {
+                    if (!_byId.TryGetValue(ToolId(s.Name, info.Name), out GraphNode tool)) continue;
+                    bool paused = s.Paused || info.Paused;
+                    if (tool.IsPaused == paused) continue;
+                    tool.IsPaused = paused;
+                    changed = true;
+                }
+            }
+            return changed;
         }
 
         /// <summary>

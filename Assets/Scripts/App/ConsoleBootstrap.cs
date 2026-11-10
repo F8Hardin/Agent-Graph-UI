@@ -51,6 +51,9 @@ namespace AgentConsole.App
         private IChatStore _store;
         private ConsoleReducer _reducer;
         private ModelController _models;
+        private InventoryController _inventory; // live transport only: keeps the graph in step with EVA's /tools
+        private EvaInventory _inventorySource;
+        private string _lastInventoryError;
         private ChatSession _session;
         private MemoryTracker _memory;
         private ReplayTransport _pumpedReplay; // set only when the replay is driven from Update (no threads: WebGL)
@@ -58,6 +61,9 @@ namespace AgentConsole.App
         public ConsoleReducer Reducer => _reducer;
         public IAgentTransport Transport => _transport;
         public ChatSession Session => _session;
+
+        /// <summary>The live inventory, or null for the offline replay. A UI that wants to show omitted (offline) servers reads it here.</summary>
+        public InventoryController Inventory => _inventory;
 
         private void Start()
         {
@@ -85,7 +91,12 @@ namespace AgentConsole.App
                 }
             }
 
-            GraphModel graph = new GraphModel(agentLabel, SampleInventory.Eva());
+            // A live agent starts with just the agent node and is filled from EVA's /tools below. Rejected: starting
+            // from SampleInventory for every transport, which drew the demo's machines (a red desktop, a healthy
+            // MacBook) over the real ones. Only the offline replay, which has no server to ask, keeps the sample.
+            GraphModel graph = transportKind == TransportKind.Replay
+                ? new GraphModel(agentLabel, SampleInventory.Eva())
+                : new GraphModel(agentLabel);
             _reducer = new ConsoleReducer(graph);
 
             if (transportKind == TransportKind.Replay)
@@ -101,6 +112,11 @@ namespace AgentConsole.App
             {
                 _transport = new EvaSseTransport(evaBaseUrl);
                 _store = new EvaChatStore(evaBaseUrl);
+                _inventorySource = new EvaInventory(evaBaseUrl);
+                _inventory = new InventoryController(_inventorySource, graph);
+                _inventory.Changed += OnInventoryChanged;
+                // A finished run may have used a server the last reading did not know about. Ask again, once idle.
+                _reducer.RunFinished += _ => _inventory.RequestRefresh();
             }
 
             // The model control is gated by capability, never by which agent this is: a transport that cannot list
@@ -160,9 +176,20 @@ namespace AgentConsole.App
             return store;
         }
 
+        private void OnInventoryChanged()
+        {
+            // There is no connection-status line in the View yet (Settings only shows the transport and URL), so a
+            // failed read goes to the console, once per distinct message, not once per 60 s poll.
+            if (_inventory.Phase == InventoryPhase.Ready) _lastInventoryError = null; // a later outage is news again
+            if (_inventory.Phase != InventoryPhase.Failed || _inventory.Error == _lastInventoryError) return;
+            _lastInventoryError = _inventory.Error;
+            Debug.LogWarning("EVA tool list unavailable, keeping the current graph: " + _inventory.Error);
+        }
+
         private void Update()
         {
             _models?.Pump();
+            _inventory?.Update(_reducer.State.RunInFlight); // fetch, and rebuild the graph only if its shape changed
             _session?.Pump();
             if (_transport == null) return;
             _pumpedReplay?.Pump(Time.realtimeSinceStartupAsDouble); // no-op unless the replay is pumped
@@ -181,6 +208,8 @@ namespace AgentConsole.App
             _memory?.Dispose();
             _session?.Dispose();
             _models?.Dispose();
+            _inventory?.Dispose();
+            _inventorySource?.Dispose();
             (_transport as IDisposable)?.Dispose();
             (_store as IDisposable)?.Dispose();
         }
