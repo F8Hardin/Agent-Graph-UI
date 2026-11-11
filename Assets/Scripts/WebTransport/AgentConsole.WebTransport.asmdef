@@ -1,0 +1,17 @@
+{
+    "name": "AgentConsole.WebTransport",
+    "rootNamespace": "AgentConsole.WebTransport",
+    "references": [
+        "AgentConsole.Domain",
+        "AgentConsole.Transport"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

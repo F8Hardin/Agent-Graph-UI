@@ -51,6 +51,7 @@ namespace AgentConsole.Domain
         private readonly Func<double> _clock;
         private readonly ConcurrentQueue<Action> _done = new ConcurrentQueue<Action>();
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+        private readonly TaskScheduler _scheduler;
 
         // Pause requests. _queued* are waiting, _sent* are in the request now, _opt* are both together: the overlay.
         private readonly Dictionary<string, bool> _queuedServers = new Dictionary<string, bool>();
@@ -105,8 +106,11 @@ namespace AgentConsole.Domain
 
         /// <param name="source">Null when there is nothing to ask. The graph then keeps whatever it was built with.</param>
         /// <param name="clockSeconds">Injectable so tests need no sleeping. Defaults to a monotonic clock.</param>
-        public InventoryController(IInventorySource source, GraphModel graph, Func<double> clockSeconds = null)
+        /// <param name="asyncMode">CallerContext keeps every continuation on the constructing thread's context (WebGL). Construct on the main thread.</param>
+        public InventoryController(IInventorySource source, GraphModel graph, Func<double> clockSeconds = null,
+            AsyncMode asyncMode = AsyncMode.ThreadPool)
         {
+            _scheduler = AsyncModes.SchedulerFor(asyncMode);
             _source = source;
             _graph = graph ?? throw new ArgumentNullException(nameof(graph));
             _clock = clockSeconds ?? DefaultClock;
@@ -321,7 +325,7 @@ namespace AgentConsole.Domain
             }
             task.ContinueWith(
                 _ => _done.Enqueue(apply),
-                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, _scheduler);
         }
 
         private void OnFetched(Task<InventorySnapshot> t)

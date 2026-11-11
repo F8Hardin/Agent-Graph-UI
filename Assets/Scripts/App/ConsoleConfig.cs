@@ -20,7 +20,7 @@ namespace AgentConsole.App
     [Serializable]
     public sealed class ConsoleConfig
     {
-        public string transport = "EvaSse";          // "EvaSse" or "Replay"
+        public string transport = "EvaSse";          // "EvaSse", "EvaWeb" (UnityWebRequest stack, as in the browser build) or "Replay"
         public string evaBaseUrl = ConsoleBootstrap.DefaultEvaBaseUrl;
 
         public const string FileName = "config.json";
@@ -100,8 +100,8 @@ namespace AgentConsole.App
         }
 
         public TransportKind Kind =>
-            string.Equals(transport, "Replay", StringComparison.OrdinalIgnoreCase)
-                ? TransportKind.Replay
-                : TransportKind.EvaSse;
+            string.Equals(transport, "Replay", StringComparison.OrdinalIgnoreCase) ? TransportKind.Replay
+            : string.Equals(transport, "EvaWeb", StringComparison.OrdinalIgnoreCase) ? TransportKind.EvaWeb
+            : TransportKind.EvaSse;
     }
 }

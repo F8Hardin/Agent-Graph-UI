@@ -34,6 +34,8 @@ namespace AgentConsole.Domain
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly PromptQueue _queue = new PromptQueue();
         private readonly bool _inline;
+        private readonly bool _caller; // AsyncMode.CallerContext: no pool hop anywhere, awaits resume on the captured context
+        private readonly TaskScheduler _scheduler;
         private readonly object _chainGate = new object();
         private readonly List<ChatSummary> _chats = new List<ChatSummary>();
         private Task _chain = Task.CompletedTask;
@@ -82,9 +84,17 @@ namespace AgentConsole.Domain
         /// host, which the Replay transport in pumped mode and <see cref="MemoryChatStore"/> both do. Off by default;
         /// a store that really awaits I/O (EVA over HTTP) must keep the thread-pool path.
         /// </param>
-        public ChatSession(ConsoleReducer reducer, IAgentTransport transport, IChatStore store, bool runInline = false)
+        /// <param name="asyncMode">
+        /// CallerContext is the WebGL mode for stores and transports that really await I/O (UnityWebRequest): the turn
+        /// starts on the caller's thread and every continuation resumes on its SynchronizationContext, so a task that
+        /// completes later still never touches the thread pool. Construct on the main thread. ThreadPool is the default.
+        /// </param>
+        public ChatSession(ConsoleReducer reducer, IAgentTransport transport, IChatStore store, bool runInline = false,
+            AsyncMode asyncMode = AsyncMode.ThreadPool)
         {
             _inline = runInline;
+            _caller = asyncMode == AsyncMode.CallerContext;
+            _scheduler = AsyncModes.SchedulerFor(asyncMode);
             _r = reducer ?? throw new ArgumentNullException(nameof(reducer));
             _transport = transport;
             _store = store;
@@ -131,7 +141,7 @@ namespace AgentConsole.Domain
             _stopSent = false;
             _turnChatId = SelectedId;
             string chatId = SelectedId;
-            if (_inline)
+            if (_inline || _caller)
             {
                 // Everything RunTurnAsync awaits is already complete in this mode, so it finishes before returning.
                 Task ignore = RunTurnAsync(text, history, chatId);
@@ -157,12 +167,12 @@ namespace AgentConsole.Domain
                     {
                         if (id == null)
                         {
-                            string created = await _store.CreateAsync(TitleOf(text), ct).ConfigureAwait(false);
+                            string created = await _store.CreateAsync(TitleOf(text), ct).ConfigureAwait(_caller);
                             id = created;
                             Post(() => Adopt(created));
                         }
-                        await _store.SaveMessagesAsync(id, new[] { new StoredMessage("user", text) }, ct).ConfigureAwait(false);
-                    }).ConfigureAwait(false);
+                        await _store.SaveMessagesAsync(id, new[] { new StoredMessage("user", text) }, ct).ConfigureAwait(_caller);
+                    }).ConfigureAwait(_caller);
                 }
                 catch (ChatNotFoundException)
                 {
@@ -184,7 +194,7 @@ namespace AgentConsole.Domain
 
             try
             {
-                await _transport.SendAsync(id, text, history, ct).ConfigureAwait(false);
+                await _transport.SendAsync(id, text, history, ct).ConfigureAwait(_caller);
             }
             catch (Exception e)
             {
@@ -210,7 +220,7 @@ namespace AgentConsole.Domain
                 {
                     try
                     {
-                        await _store.SaveMessagesAsync(id, new[] { reply }, _cts.Token).ConfigureAwait(false);
+                        await _store.SaveMessagesAsync(id, new[] { reply }, _cts.Token).ConfigureAwait(_caller);
                     }
                     catch (ChatNotFoundException)
                     {
@@ -237,7 +247,7 @@ namespace AgentConsole.Domain
             _stopSent = true;
             _transport.StopAsync(job).ContinueWith(
                 t => Post(() => _r.Apply(AgentEvent.Error(t.Exception != null ? t.Exception.GetBaseException().Message : "Stop failed."))),
-                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, _scheduler);
         }
 
         // ------------------------------------------------------------------ chat list
@@ -261,7 +271,7 @@ namespace AgentConsole.Domain
             }
             task.ContinueWith(
                 t => Post(() => OnListed(gen, t)),
-                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, _scheduler);
         }
 
         private void OnListed(int gen, Task<IReadOnlyList<ChatSummary>> t)
@@ -313,7 +323,7 @@ namespace AgentConsole.Domain
             }
             task.ContinueWith(
                 t => Post(() => OnLoaded(gen, id, t)),
-                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, _scheduler);
         }
 
         private void OnLoaded(int gen, string id, Task<ChatDetail> t)
@@ -367,7 +377,7 @@ namespace AgentConsole.Domain
             }
             _store.DeleteAsync(id, _cts.Token).ContinueWith(
                 t => Post(() => OnDeleted(id, t)),
-                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, _scheduler);
         }
 
         private void OnDeleted(string id, Task t)
@@ -420,8 +430,8 @@ namespace AgentConsole.Domain
                 // queueing it to a thread pool that does not exist on WebGL.
                 _chain = _chain.ContinueWith(
                     _ => op(), CancellationToken.None,
-                    _inline ? TaskContinuationOptions.ExecuteSynchronously : TaskContinuationOptions.None,
-                    TaskScheduler.Default).Unwrap();
+                    _inline || _caller ? TaskContinuationOptions.ExecuteSynchronously : TaskContinuationOptions.None,
+                    _scheduler).Unwrap();
                 return _chain;
             }
         }

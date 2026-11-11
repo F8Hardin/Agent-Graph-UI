@@ -36,6 +36,7 @@ namespace AgentConsole.Domain
         private readonly IModelSelector _selector;
         private readonly ConcurrentQueue<Action> _done = new ConcurrentQueue<Action>();
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+        private readonly TaskScheduler _scheduler;
         private int _generation;
 
         public ModelControlPhase Phase { get; private set; }
@@ -52,9 +53,11 @@ namespace AgentConsole.Domain
         public event Action Changed;
 
         /// <param name="selector">Null when the agent has no model capability.</param>
-        public ModelController(IModelSelector selector)
+        /// <param name="asyncMode">CallerContext keeps every continuation on the constructing thread's context (WebGL). Construct on the main thread.</param>
+        public ModelController(IModelSelector selector, AsyncMode asyncMode = AsyncMode.ThreadPool)
         {
             _selector = selector;
+            _scheduler = AsyncModes.SchedulerFor(asyncMode);
             Phase = selector == null ? ModelControlPhase.Unavailable : ModelControlPhase.Ready;
         }
 
@@ -90,7 +93,7 @@ namespace AgentConsole.Domain
             }
             task.ContinueWith(
                 t => _done.Enqueue(() => OnSwitched(gen, t)),
-                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, _scheduler);
         }
 
         /// <summary>
@@ -154,7 +157,7 @@ namespace AgentConsole.Domain
             }
             task.ContinueWith(
                 t => _done.Enqueue(() => OnListed(gen, t, quiet)),
-                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, _scheduler);
         }
 
         private void OnListed(int gen, Task<ModelCatalog> t, bool quiet)
