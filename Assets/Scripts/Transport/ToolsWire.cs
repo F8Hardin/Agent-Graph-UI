@@ -11,6 +11,8 @@ namespace AgentConsole.Transport
     ///   "tools":[{"name":"fates_desktop__vault_read","short_name":"vault_read","paused":false,"tokens_est":94}, ...]}, ...],
     ///  "totals":{...},"note":"..."}
     /// </code>
+    /// POST /tools answers in the same shape plus <c>"unknown":[...]</c>, the names it did not recognise, and takes
+    /// <c>{"servers":{"github":true},"tools":{"fates_desktop__screenshot":false}}</c> (true = paused), see <see cref="BuildPauseBody"/>.
     /// Tolerant like <see cref="ModelsWire"/>: unknown fields are ignored, a server without a name or a tool without
     /// one is skipped, and every number may be missing. A server with NO status is treated as not connected: nothing
     /// proves it is reachable, and drawing a node for a machine that is off is the bug this exists to fix.
@@ -40,8 +42,54 @@ namespace AgentConsole.Transport
                     Get(row, "error") as string,
                     AsInt(Get(row, "tokens_est")), AsInt(Get(row, "active_tokens_est"))));
             }
-            snapshot = InventorySnapshot.From(servers);
+            snapshot = InventorySnapshot.From(servers, ParseNames(Get(obj, "unknown")));
             return true;
+        }
+
+        /// <summary>
+        /// The body of a pause request. Built by hand over <see cref="MiniJson.Quote"/> so every name is escaped, and in a
+        /// fixed order (as given) so a test can compare it. A tool's key is its wire name, exactly as GET listed it.
+        /// Rejected: string concatenation of the names, which breaks on the first quote or backslash in a server name.
+        /// </summary>
+        public static string BuildPauseBody(IReadOnlyDictionary<string, bool> servers, IReadOnlyDictionary<string, bool> tools)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.Append("{\"servers\":");
+            AppendMap(sb, servers);
+            sb.Append(",\"tools\":");
+            AppendMap(sb, tools);
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        private static void AppendMap(System.Text.StringBuilder sb, IReadOnlyDictionary<string, bool> map)
+        {
+            sb.Append('{');
+            bool first = true;
+            if (map != null)
+            {
+                foreach (KeyValuePair<string, bool> kv in map)
+                {
+                    if (string.IsNullOrEmpty(kv.Key)) continue;
+                    if (!first) sb.Append(',');
+                    first = false;
+                    sb.Append(MiniJson.Quote(kv.Key)).Append(':').Append(kv.Value ? "true" : "false");
+                }
+            }
+            sb.Append('}');
+        }
+
+        private static List<string> ParseNames(object v)
+        {
+            List<string> names = new List<string>();
+            if (v is List<object> items)
+            {
+                for (int i = 0; i < items.Count; i++)
+                {
+                    if (items[i] is string s && s.Length > 0) names.Add(s);
+                }
+            }
+            return names;
         }
 
         /// <summary>
@@ -68,15 +116,18 @@ namespace AgentConsole.Transport
             for (int i = 0; i < items.Count; i++)
             {
                 string label;
+                string wire = null;
                 bool paused = false;
                 int? tokens = null;
                 if (items[i] is string bare)
                 {
                     label = ToolLabel(server, bare, null);
+                    wire = bare;
                 }
                 else if (items[i] is Dictionary<string, object> t)
                 {
-                    label = ToolLabel(server, Get(t, "name") as string, Get(t, "short_name") as string);
+                    wire = Get(t, "name") as string;
+                    label = ToolLabel(server, wire, Get(t, "short_name") as string);
                     paused = Get(t, "paused") is bool p && p;
                     tokens = AsInt(Get(t, "tokens_est"));
                 }
@@ -85,7 +136,7 @@ namespace AgentConsole.Transport
                     continue;
                 }
                 if (string.IsNullOrEmpty(label) || !seen.Add(label)) continue;
-                list.Add(new ToolInfo(label, paused, tokens));
+                list.Add(new ToolInfo(label, paused, tokens, wire));
             }
             return list;
         }

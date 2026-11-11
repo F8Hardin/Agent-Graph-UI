@@ -60,6 +60,18 @@ namespace AgentConsole.View
             return g;
         }
 
+        /// <summary>
+        /// Forget graphics that have been destroyed. A list that is rebuilt on every change (the MCP rows) binds a new set
+        /// each time, and without this the entries of the old sets would pile up until the next theme change swept them.
+        /// </summary>
+        public void Prune()
+        {
+            for (int i = _entries.Count - 1; i >= 0; i--)
+            {
+                if (_entries[i].G == null) _entries.RemoveAt(i);
+            }
+        }
+
         public void Apply(ThemeTokens t)
         {
             Tokens = t;

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using AgentConsole.Domain;
@@ -177,6 +178,168 @@ namespace AgentConsole.Tests
             Assert.AreEqual(1, rebuilt);
             Assert.AreEqual(3, g.Nodes.Count);
             Assert.IsFalse(g.TryGetNode("tool:x__y", out _));
+        }
+
+        // ------------------------------------------------------------------ incremental change (UNI-12)
+
+        private static ServerInfo[] EvaWith(string server, bool paused)
+        {
+            ServerInfo[] inv = SampleInventory.Eva();
+            for (int i = 0; i < inv.Length; i++)
+            {
+                if (inv[i].Name == server) inv[i] = inv[i].WithPaused(paused);
+            }
+            return inv;
+        }
+
+        [Test]
+        public void Build_LeavesOutAPausedServerAndAPausedTool()
+        {
+            ServerInfo[] inv = EvaWith("robinhood", true);
+            inv[2] = inv[2].WithToolPaused("fates_desktop__screenshot", true);
+            GraphModel g = new GraphModel("EVA", inv);
+            Assert.IsFalse(g.TryGetNode("srv:robinhood", out _));
+            Assert.IsFalse(g.TryGetNode("tool:robinhood__get_accounts", out _));
+            Assert.IsTrue(g.TryGetNode("srv:fates_desktop", out _));
+            Assert.IsFalse(g.TryGetNode("tool:fates_desktop__screenshot", out _));
+            Assert.IsTrue(g.TryGetNode("tool:fates_desktop__run_command", out _));
+        }
+
+        [Test]
+        public void Reconcile_PausingAServer_RemovesOnlyItsNodes_LeavingTheOthersIdsAndOrderIntact_AndRaisesEachRemovalOnce()
+        {
+            GraphModel g = Eva();
+            List<GraphNode> before = new List<GraphNode>(g.Nodes);
+            int linksBefore = g.Links.Count;
+            List<string> log = new List<string>();
+            int rebuilt = 0, added = 0;
+            g.NodeRemoved += n => log.Add("node:" + n.Id);
+            g.LinkRemoved += l => log.Add("link:" + l.TargetId);
+            g.Rebuilt += () => rebuilt++;
+            g.NodeAdded += n => added++;
+
+            Assert.IsTrue(g.Reconcile(EvaWith("robinhood", true)));
+
+            string[] gone =
+            {
+                "srv:robinhood", "tool:robinhood__get_equity_positions", "tool:robinhood__get_equity_quotes",
+                "tool:robinhood__get_equity_orders", "tool:robinhood__get_accounts", "tool:robinhood__get_realized_pnl"
+            };
+            Assert.AreEqual(0, rebuilt, "incremental, not a rebuild");
+            Assert.AreEqual(0, added);
+            Assert.AreEqual(gone.Length * 2, log.Count, "one link event and one node event per removed node, no repeats");
+            foreach (string id in gone)
+            {
+                int node = log.IndexOf("node:" + id);
+                int link = log.IndexOf("link:" + id);
+                Assert.GreaterOrEqual(node, 0, id);
+                Assert.GreaterOrEqual(link, 0, id);
+                Assert.Less(link, node, id + ": the link goes before its node, so no listener holds a link to a missing node");
+                Assert.AreEqual(node, log.LastIndexOf("node:" + id), id + " reported once");
+                Assert.IsFalse(g.TryGetNode(id, out _));
+            }
+
+            List<GraphNode> expected = new List<GraphNode>();
+            foreach (GraphNode n in before)
+            {
+                if (Array.IndexOf(gone, n.Id) < 0) expected.Add(n);
+            }
+            Assert.AreEqual(expected.Count, g.Nodes.Count);
+            for (int i = 0; i < expected.Count; i++) Assert.AreSame(expected[i], g.Nodes[i], "node " + i + " keeps its identity and its place in the order");
+            Assert.AreEqual(linksBefore - gone.Length, g.Links.Count);
+            foreach (GraphLink l in g.Links)
+            {
+                Assert.IsTrue(g.TryGetNode(l.SourceId, out _) && g.TryGetNode(l.TargetId, out _), "no link dangles");
+            }
+
+            Assert.IsFalse(g.Reconcile(EvaWith("robinhood", true)), "the same reading changes nothing");
+            Assert.AreEqual(gone.Length * 2, log.Count);
+        }
+
+        [Test]
+        public void Reconcile_PausingOneTool_RemovesOnlyThatNodeAndItsLink()
+        {
+            GraphModel g = Eva();
+            int nodes = g.Nodes.Count, links = g.Links.Count;
+            List<string> removed = new List<string>();
+            g.NodeRemoved += n => removed.Add(n.Id);
+            ServerInfo[] inv = SampleInventory.Eva();
+            inv[2] = inv[2].WithToolPaused("fates_desktop__screenshot", true);
+
+            Assert.IsTrue(g.Reconcile(inv));
+            CollectionAssert.AreEqual(new[] { "tool:fates_desktop__screenshot" }, removed);
+            Assert.AreEqual(nodes - 1, g.Nodes.Count);
+            Assert.AreEqual(links - 1, g.Links.Count);
+            Assert.IsTrue(g.TryGetNode("srv:fates_desktop", out _));
+            Assert.IsFalse(g.TryGetLink("srv:fates_desktop", "tool:fates_desktop__screenshot", out _));
+        }
+
+        [Test]
+        public void Reconcile_ResumingAServer_AddsItBackOnceWithItsLinks()
+        {
+            GraphModel g = new GraphModel("EVA", EvaWith("robinhood", true));
+            List<string> added = new List<string>();
+            List<string> links = new List<string>();
+            g.NodeAdded += n => added.Add(n.Id);
+            g.LinkAdded += l => links.Add(l.TargetId);
+
+            Assert.IsTrue(g.Reconcile(SampleInventory.Eva()));
+            Assert.AreEqual(6, added.Count);
+            Assert.AreEqual("srv:robinhood", added[0], "the server before its tools");
+            Assert.AreEqual(6, links.Count);
+            Assert.IsTrue(g.TryGetLink("agent", "srv:robinhood", out _));
+            Assert.IsTrue(g.TryGetLink("srv:robinhood", "tool:robinhood__get_accounts", out _));
+            Assert.IsFalse(g.Reconcile(SampleInventory.Eva()));
+        }
+
+        [Test]
+        public void Reconcile_AGraftedNodeSurvivesWhileItsServerStays_AndGoesWithTheServer()
+        {
+            GraphModel g = Eva();
+            g.EnsureTool("robinhood__get_pnl", out _, out _);
+            Assert.IsTrue(g.Reconcile(SampleInventory.Eva()) == false, "a poll that finds nothing new leaves the grafted tool alone");
+            Assert.IsTrue(g.TryGetNode("tool:robinhood__get_pnl", out _));
+
+            ServerInfo[] inv = SampleInventory.Eva();
+            inv[3] = inv[3].WithToolPaused("robinhood__get_accounts", true);
+            Assert.IsTrue(g.Reconcile(inv));
+            Assert.IsTrue(g.TryGetNode("tool:robinhood__get_pnl", out _), "a call that is lighting a node must not lose it to a poll");
+
+            Assert.IsTrue(g.Reconcile(EvaWith("robinhood", true)));
+            Assert.IsFalse(g.TryGetNode("tool:robinhood__get_pnl", out _), "it leaves with its whole server");
+            Assert.IsFalse(g.TryGetNode("srv:robinhood", out _));
+        }
+
+        [Test]
+        public void Reconcile_AServerThatGoesOffline_LeavesLikeAPausedOne()
+        {
+            GraphModel g = Eva();
+            ServerInfo[] inv = SampleInventory.Eva();
+            inv[3] = new ServerInfo("robinhood", null, ServerInfo.StatusError, new ToolInfo[0], false, "down", null, null);
+            Assert.IsTrue(g.Reconcile(inv));
+            Assert.IsFalse(g.TryGetNode("srv:robinhood", out _));
+            Assert.IsFalse(g.TryGetNode("tool:robinhood__get_accounts", out _));
+        }
+
+        [Test]
+        public void SampleInventory_WithSettings_HasASamePausedGithubAndOfflineMacbook_ThatTheGraphDoesNotDraw()
+        {
+            ServerInfo[] all = SampleInventory.EvaWithSettings();
+            Assert.AreEqual(9, all.Length);
+            GraphModel withSettings = new GraphModel("EVA", all);
+            Assert.AreEqual(Eva().Nodes.Count, withSettings.Nodes.Count, "paused github and offline macbook are list-only");
+            Assert.IsFalse(withSettings.TryGetNode("srv:github", out _));
+            Assert.IsFalse(withSettings.TryGetNode("srv:fates_macbook", out _));
+        }
+
+        [Test]
+        public void SampleInventory_ToolWireNamesAreUniqueAcrossServers_SoAPauseRequestNamesExactlyOneTool()
+        {
+            HashSet<string> seen = new HashSet<string>();
+            foreach (ServerInfo s in SampleInventory.EvaWithSettings())
+            {
+                foreach (ToolInfo t in s.ToolDetails) Assert.IsTrue(seen.Add(t.WireName), "duplicate wire name " + t.WireName);
+            }
         }
     }
 }

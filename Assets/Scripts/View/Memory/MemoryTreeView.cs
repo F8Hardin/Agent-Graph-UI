@@ -78,6 +78,7 @@ namespace AgentConsole.View
             _tree.Cleared += OnCleared;
             _tracker.ServerChanged += OnServerChanged;
             _tracker.LiveChanged += OnLiveChanged;
+            _graph.NodesReindexed += OnGraphReindexed;
             if (_theme != null) _theme.Changed += OnTheme;
             ConsoleSettings.ViewChanged += OnViewSettings;
 
@@ -101,6 +102,7 @@ namespace AgentConsole.View
                 _tracker.ServerChanged -= OnServerChanged;
                 _tracker.LiveChanged -= OnLiveChanged;
             }
+            if (_graph != null) _graph.NodesReindexed -= OnGraphReindexed;
             if (_theme != null) _theme.Changed -= OnTheme;
             ConsoleSettings.ViewChanged -= OnViewSettings;
             for (int i = 0; i < _views.Count; i++) _views[i].Destroy();
@@ -161,6 +163,16 @@ namespace AgentConsole.View
         private void OnServerChanged()
         {
             _serverId = _tracker.Server != null ? GraphModel.ServerId(_tracker.Server) : null;
+            ResolveAnchor();
+            if (_views.Count > 0) RebuildLayout();
+        }
+
+        /// <summary>
+        /// A node left the graph and every index after it moved down by one, so the anchor index kept here is stale. Find
+        /// the host server again. (If it was the host that left, the tracker clears the tree on the same event.)
+        /// </summary>
+        private void OnGraphReindexed()
+        {
             ResolveAnchor();
             if (_views.Count > 0) RebuildLayout();
         }

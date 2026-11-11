@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using AgentConsole.Domain;
 
 namespace AgentConsole.View
 {
@@ -24,6 +25,7 @@ namespace AgentConsole.View
         private readonly List<(string name, Image bg)> _transportButtons = new List<(string, Image)>();
         private readonly List<(float value, Image bg)> _scaleButtons = new List<(float, Image)>();
         private readonly List<(NodeStyleKind kind, Image bg)> _styleButtons = new List<(NodeStyleKind, Image)>();
+        private McpSettingsSection _mcp;
         private TMP_InputField _url;
         private TextMeshProUGUI _saved;
         private string _transport = "EvaSse";
@@ -72,6 +74,7 @@ namespace AgentConsole.View
 
             Header("Connection");
             BuildConnection();
+            _mcp = new McpSettingsSection(_content, tb); // the web app's MCP toggles; its own file, this one is long enough
             Header("Display");
             AddToggle("Show thinking", () => ConsoleSettings.ShowThinking, v => ConsoleSettings.SetView(thinking: v));
             AddToggle("Show raw events", () => ConsoleSettings.ShowRaw, v => ConsoleSettings.SetView(raw: v));
@@ -101,7 +104,15 @@ namespace AgentConsole.View
 
         public void Tick(float dt) => _panel.Tick(dt);
 
-        public void SetVisible(bool on) => _panel.Root.gameObject.SetActive(on);
+        public void SetVisible(bool on)
+        {
+            bool opening = on && !_panel.Root.gameObject.activeSelf;
+            _panel.Root.gameObject.SetActive(on);
+            if (opening) _mcp.OnOpened(); // the list should be current when it is looked at
+        }
+
+        /// <summary>Give the MCP section its controller. Null leaves it saying the list is not available.</summary>
+        public void BindInventory(InventoryController inventory) => _mcp.Bind(inventory);
         public bool Visible => _panel.Root.gameObject.activeSelf;
 
         /// <summary>Show the connection the host is using. Called once at start.</summary>

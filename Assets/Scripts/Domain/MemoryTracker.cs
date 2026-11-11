@@ -48,6 +48,7 @@ namespace AgentConsole.Domain
             _reducer.ToolResolved += OnResolved;
             _reducer.ConversationCleared += Reset;
             _graph.Rebuilt += Reset;
+            _graph.NodeRemoved += OnGraphNodeRemoved;
         }
 
         public void Dispose()
@@ -56,6 +57,21 @@ namespace AgentConsole.Domain
             _reducer.ToolResolved -= OnResolved;
             _reducer.ConversationCleared -= Reset;
             _graph.Rebuilt -= Reset;
+            _graph.NodeRemoved -= OnGraphNodeRemoved;
+        }
+
+        /// <summary>
+        /// The tree hangs off the memory server's node. When that server is switched off (or goes offline) its node leaves
+        /// the graph, and a tree with no host would float anchored to the agent, which reads as memory belonging to EVA
+        /// itself. So the tree goes with it, and the next successful memory call, once the server is back, grows it again.
+        /// Rejected: keeping the tree and re-anchoring it, which shows files of a server the agent can no longer reach.
+        /// </summary>
+        private void OnGraphNodeRemoved(GraphNode node)
+        {
+            if (Server == null || node.Tier != NodeTier.Server || node.Id != GraphModel.ServerId(Server)) return;
+            Reset();
+            Server = null;
+            ServerChanged?.Invoke();
         }
 
         private void Reset()

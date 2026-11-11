@@ -141,6 +141,48 @@ namespace AgentConsole.View
             _m++;
         }
 
+        /// <summary>
+        /// Take link <paramref name="k"/> out, shifting the later ones down (the view keeps its own link lists in the same
+        /// order, so it removes the same index). The layout is NOT re-heated: everything else stays exactly where it is.
+        /// </summary>
+        public void RemoveLink(int k)
+        {
+            if (k < 0 || k >= _m) return;
+            Array.Copy(_la, k + 1, _la, k, _m - k - 1);
+            Array.Copy(_lb, k + 1, _lb, k, _m - k - 1);
+            Array.Copy(_lrest, k + 1, _lrest, k, _m - k - 1);
+            _m--;
+        }
+
+        /// <summary>
+        /// Take node <paramref name="i"/> out, shifting the later ones down and renumbering the links that point past it.
+        /// Refuses (returns false) while a link still touches it, so a caller must remove its links first and the link
+        /// indices the view keeps can never go out of step. Never re-heats: the remaining nodes keep their positions, which
+        /// is the point of removing one node instead of rebuilding the graph. Removing the anchor is not supported.
+        /// </summary>
+        public bool RemoveNode(int i)
+        {
+            if (i <= 0 || i >= _n || i == _anchor) return false;
+            for (int k = 0; k < _m; k++)
+            {
+                if (_la[k] == i || _lb[k] == i) return false;
+            }
+            int tail = _n - i - 1;
+            Array.Copy(_pos, i + 1, _pos, i, tail);
+            Array.Copy(_vel, i + 1, _vel, i, tail);
+            Array.Copy(_rad, i + 1, _rad, i, tail);
+            Array.Copy(_tier, i + 1, _tier, i, tail);
+            Array.Copy(_pinned, i + 1, _pinned, i, tail);
+            for (int k = 0; k < _m; k++)
+            {
+                if (_la[k] > i) _la[k]--;
+                if (_lb[k] > i) _lb[k]--;
+            }
+            if (_anchor > i) _anchor--;
+            _n--;
+            return true;
+        }
+
         /// <summary>Re-heat after a graft. Only ever raises alpha.</summary>
         public void Heat(float alpha)
         {

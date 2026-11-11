@@ -184,6 +184,15 @@ namespace AgentConsole.View
             _pool[slot] = new Pulse { Active = true, Edge = edge, T = 0f, Reverse = reverse };
         }
 
+        /// <summary>
+        /// Drop every pulse in flight. Pulses name an edge by index, and removing an edge renumbers the ones after it, so a
+        /// pulse left running would light a different edge than the one it was started on.
+        /// </summary>
+        public void ClearPulses()
+        {
+            for (int i = 0; i < PoolSize; i++) _pool[i].Active = false;
+        }
+
         /// <summary>Advance pulses. Returns true if any is still in flight.</summary>
         public bool Advance(float dt)
         {

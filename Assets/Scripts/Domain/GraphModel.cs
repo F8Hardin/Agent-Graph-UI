@@ -37,13 +37,6 @@ namespace AgentConsole.Domain
 
         public bool IsDown { get; }
 
-        /// <summary>
-        /// A server, or one of its tools, that EVA has paused. Carried so a later card can dim it; nothing draws it
-        /// differently yet. Mutable (internal set) because a pause toggle changes it without a rebuild, and a rebuild
-        /// would throw away the layout the user arranged.
-        /// </summary>
-        public bool IsPaused { get; internal set; }
-
         /// <summary>True if the node was not in the inventory and was added on first use.</summary>
         public bool Grafted { get; }
 
@@ -61,9 +54,8 @@ namespace AgentConsole.Domain
         public static GraphNode Detached(string id, string label, NodeTier tier, string server, bool isMemory) =>
             new GraphNode(id, label, tier, server, isMemory, false, false);
 
-        internal GraphNode(string id, string label, NodeTier tier, string server, bool isMemory, bool isDown, bool grafted, bool isPaused = false)
+        internal GraphNode(string id, string label, NodeTier tier, string server, bool isMemory, bool isDown, bool grafted)
         {
-            IsPaused = isPaused;
             Id = id;
             Label = label;
             Tier = tier;
@@ -100,6 +92,16 @@ namespace AgentConsole.Domain
     /// <summary>
     /// Three tiers: agent (0), MCP server (1), tool (2). Built from an inventory, and any node
     /// not in it is grafted on first use. Main-thread only, like the reducer that owns it.
+    ///
+    /// It shows what the agent can use RIGHT NOW: a server that is connected and not paused, with the tools of it that are
+    /// not paused (<see cref="ServerInfo.IsLive"/>). That reverses the rule UNI-20 shipped, which kept paused servers and
+    /// drew a full green tree for an MCP that was switched off. The rule lives here, in the one place that builds nodes,
+    /// so no caller can hand the graph a paused server by mistake.
+    ///
+    /// Two ways to change it. <see cref="Build"/> replaces everything and is for the first reading. <see cref="Reconcile"/>
+    /// adds and removes only the difference and raises per-node events, so the view keeps every other node where the user
+    /// left it. Rejected: rebuilding on every pause toggle, which reset the force layout, every dragged node and the
+    /// session memory tree for a one-server change.
     /// </summary>
     public sealed class GraphModel
     {
@@ -121,6 +123,13 @@ namespace AgentConsole.Domain
         /// <summary>Raised when a node is added after Build, i.e. grafted on first use.</summary>
         public event Action<GraphNode> NodeAdded;
         public event Action<GraphLink> LinkAdded;
+
+        /// <summary>
+        /// Raised by <see cref="Reconcile"/> for each node it takes out, AFTER the links that touched it were reported with
+        /// <see cref="LinkRemoved"/>, so a listener never holds a link to a node that is already gone.
+        /// </summary>
+        public event Action<GraphNode> NodeRemoved;
+        public event Action<GraphLink> LinkRemoved;
 
         /// <summary>Raised after Build has replaced the whole graph.</summary>
         public event Action Rebuilt;
@@ -150,65 +159,111 @@ namespace AgentConsole.Domain
             {
                 foreach (ServerInfo s in inventory)
                 {
-                    if (s == null || string.IsNullOrEmpty(s.Name) || _kindOfServer.ContainsKey(s.Name))
+                    if (s == null || string.IsNullOrEmpty(s.Name) || !s.IsLive || _kindOfServer.ContainsKey(s.Name))
                     {
                         continue;
                     }
-                    _kindOfServer[s.Name] = s.Kind;
-                    bool down = string.Equals(s.Status, ServerInfo.StatusError, StringComparison.OrdinalIgnoreCase);
-                    bool mem = s.Kind == ServerInfo.KindMemory;
-                    string sid = ServerId(s.Name);
-                    AddNode(new GraphNode(sid, s.Name, NodeTier.Server, s.Name, mem, down, false, s.Paused), false);
-                    AddLink(new GraphLink(AgentId, sid, NodeTier.Server, down), false);
-                    foreach (ToolInfo info in s.ToolDetails)
-                    {
-                        string t = info.Name;
-                        if (string.IsNullOrEmpty(t))
-                        {
-                            continue;
-                        }
-                        // First server to list a bare tool name wins, as in the prototype's SRV_OF.
-                        if (!_serverOfTool.ContainsKey(t))
-                        {
-                            _serverOfTool[t] = s.Name;
-                        }
-                        string tid = ToolId(s.Name, t);
-                        if (_byId.ContainsKey(tid))
-                        {
-                            continue;
-                        }
-                        AddNode(new GraphNode(tid, t, NodeTier.Tool, s.Name, mem, false, false, s.Paused || info.Paused), false);
-                        AddLink(new GraphLink(sid, tid, NodeTier.Tool, false), false);
-                    }
+                    RegisterServer(s);
+                    AddServer(s, false);
                 }
             }
 
             Rebuilt?.Invoke();
         }
 
-        /// <summary>
-        /// Update the paused flags of nodes already in the graph from a newer inventory, without a rebuild. A pause
-        /// toggle is not a change of shape, and a rebuild resets the layout and the user's hand-placed nodes.
-        /// Servers and tools the graph does not have are ignored. Returns true if any flag changed.
-        /// </summary>
-        public bool ApplyPaused(IEnumerable<ServerInfo> inventory)
+        /// <summary>True once a server from an inventory is in the graph (as opposed to only the agent and grafted nodes).</summary>
+        public bool HasInventoryNodes
         {
-            bool changed = false;
-            if (inventory == null) return false;
-            foreach (ServerInfo s in inventory)
+            get
             {
-                if (s == null || string.IsNullOrEmpty(s.Name)) continue;
-                if (_byId.TryGetValue(ServerId(s.Name), out GraphNode srv) && srv.IsPaused != s.Paused)
+                for (int i = 0; i < _nodes.Count; i++)
                 {
-                    srv.IsPaused = s.Paused;
+                    if (_nodes[i].Tier == NodeTier.Server && !_nodes[i].Grafted) return true;
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Bring the graph in line with a newer inventory by adding and removing only what differs, with the add and
+        /// remove events a view needs to leave everything else alone. Returns true if anything changed.
+        ///
+        /// Grafted nodes (first use of something the inventory did not list) are left alone while their server stays: a
+        /// call that is lighting a node must not lose it to a poll. They go when their whole server does. Rejected:
+        /// removing every node the new reading does not list, which would make a tool call EVA made to a tool its
+        /// own list missed flicker in and out on each poll.
+        /// </summary>
+        public bool Reconcile(IEnumerable<ServerInfo> inventory)
+        {
+            List<ServerInfo> live = new List<ServerInfo>();
+            HashSet<string> liveServers = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> liveIds = new HashSet<string>(StringComparer.Ordinal);
+            if (inventory != null)
+            {
+                foreach (ServerInfo s in inventory)
+                {
+                    if (s == null || string.IsNullOrEmpty(s.Name) || !s.IsLive || !liveServers.Add(s.Name)) continue;
+                    live.Add(s);
+                    foreach (ToolInfo t in s.ToolDetails)
+                    {
+                        if (!t.Paused) liveIds.Add(ToolId(s.Name, t.Name));
+                    }
+                }
+            }
+
+            // Decide first, then remove: removing while walking _nodes would skip entries.
+            List<GraphNode> goneServers = new List<GraphNode>();
+            List<GraphNode> goneTools = new List<GraphNode>();
+            HashSet<string> managed = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                GraphNode n = _nodes[i];
+                if (n.Tier != NodeTier.Server || n.Grafted) continue;
+                managed.Add(n.Server);
+                if (!liveServers.Contains(n.Server)) goneServers.Add(n);
+            }
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                GraphNode n = _nodes[i];
+                if (n.Tier != NodeTier.Tool || n.Grafted || !managed.Contains(n.Server) || !liveServers.Contains(n.Server)) continue;
+                if (!liveIds.Contains(n.Id)) goneTools.Add(n);
+            }
+
+            bool changed = false;
+            for (int i = 0; i < goneTools.Count; i++) changed |= RemoveWithLinks(goneTools[i]);
+            for (int i = 0; i < goneServers.Count; i++)
+            {
+                GraphNode srv = goneServers[i];
+                List<GraphNode> tools = new List<GraphNode>();
+                for (int j = 0; j < _nodes.Count; j++)
+                {
+                    if (_nodes[j].Tier == NodeTier.Tool && _nodes[j].Server == srv.Server) tools.Add(_nodes[j]);
+                }
+                for (int j = 0; j < tools.Count; j++) RemoveWithLinks(tools[j]);
+                changed |= RemoveWithLinks(srv);
+            }
+
+            _serverOfTool.Clear();
+            _kindOfServer.Clear();
+            for (int i = 0; i < live.Count; i++) RegisterServer(live[i]);
+
+            for (int i = 0; i < live.Count; i++)
+            {
+                ServerInfo s = live[i];
+                string sid = ServerId(s.Name);
+                if (!_byId.ContainsKey(sid))
+                {
+                    AddNode(new GraphNode(sid, s.Name, NodeTier.Server, s.Name, s.Kind == ServerInfo.KindMemory, false, false), true);
+                    AddLink(new GraphLink(AgentId, sid, NodeTier.Server, false), true);
                     changed = true;
                 }
                 foreach (ToolInfo info in s.ToolDetails)
                 {
-                    if (!_byId.TryGetValue(ToolId(s.Name, info.Name), out GraphNode tool)) continue;
-                    bool paused = s.Paused || info.Paused;
-                    if (tool.IsPaused == paused) continue;
-                    tool.IsPaused = paused;
+                    if (info.Paused) continue;
+                    string tid = ToolId(s.Name, info.Name);
+                    if (_byId.ContainsKey(tid)) continue;
+                    AddNode(new GraphNode(tid, info.Name, NodeTier.Tool, s.Name, s.Kind == ServerInfo.KindMemory, false, false), true);
+                    AddLink(new GraphLink(sid, tid, NodeTier.Tool, false), true);
                     changed = true;
                 }
             }
@@ -281,6 +336,51 @@ namespace AgentConsole.Domain
             AddNode(tool, true);
             AddLink(new GraphLink(sid, tid, NodeTier.Tool, false), true);
             return tool;
+        }
+
+        private void RegisterServer(ServerInfo s)
+        {
+            if (_kindOfServer.ContainsKey(s.Name)) return;
+            _kindOfServer[s.Name] = s.Kind;
+            foreach (ToolInfo info in s.ToolDetails)
+            {
+                // First server to list a bare tool name wins, as in the prototype's SRV_OF.
+                if (!info.Paused && !_serverOfTool.ContainsKey(info.Name)) _serverOfTool[info.Name] = s.Name;
+            }
+        }
+
+        private void AddServer(ServerInfo s, bool raise)
+        {
+            bool mem = s.Kind == ServerInfo.KindMemory;
+            string sid = ServerId(s.Name);
+            AddNode(new GraphNode(sid, s.Name, NodeTier.Server, s.Name, mem, false, false), raise);
+            AddLink(new GraphLink(AgentId, sid, NodeTier.Server, false), raise);
+            foreach (ToolInfo info in s.ToolDetails)
+            {
+                if (info.Paused) continue; // a paused tool is not something the agent can use, so it is not drawn
+                string tid = ToolId(s.Name, info.Name);
+                if (_byId.ContainsKey(tid)) continue;
+                AddNode(new GraphNode(tid, info.Name, NodeTier.Tool, s.Name, mem, false, false), raise);
+                AddLink(new GraphLink(sid, tid, NodeTier.Tool, false), raise);
+            }
+        }
+
+        /// <summary>Take a node out with every link that touches it, links first (see <see cref="NodeRemoved"/>).</summary>
+        private bool RemoveWithLinks(GraphNode n)
+        {
+            if (!_byId.ContainsKey(n.Id)) return false;
+            for (int i = _links.Count - 1; i >= 0; i--)
+            {
+                GraphLink l = _links[i];
+                if (l.SourceId != n.Id && l.TargetId != n.Id) continue;
+                _links.RemoveAt(i);
+                _byKey.Remove(GraphLink.KeyOf(l.SourceId, l.TargetId));
+                LinkRemoved?.Invoke(l);
+            }
+            _nodes.Remove(n);
+            _byId.Remove(n.Id);
+            NodeRemoved?.Invoke(n);
+            return true;
         }
 
         private void AddNode(GraphNode n, bool raise)

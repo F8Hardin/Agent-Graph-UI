@@ -149,6 +149,8 @@ namespace AgentConsole.View
             _reducer.TranscriptChanged += OnTranscriptChanged;
             _graph.NodeAdded += OnNodeAdded;
             _graph.LinkAdded += OnLinkAdded;
+            _graph.NodeRemoved += OnNodeRemoved;
+            _graph.LinkRemoved += OnLinkRemoved;
             _graph.Rebuilt += BuildAll;
             _phase = reducer.State.Phase;
             _style = ConsoleSettings.NodeStyle;
@@ -169,6 +171,8 @@ namespace AgentConsole.View
             {
                 _graph.NodeAdded -= OnNodeAdded;
                 _graph.LinkAdded -= OnLinkAdded;
+                _graph.NodeRemoved -= OnNodeRemoved;
+                _graph.LinkRemoved -= OnLinkRemoved;
                 _graph.Rebuilt -= BuildAll;
             }
             _reducer = null;

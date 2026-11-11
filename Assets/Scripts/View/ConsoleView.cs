@@ -45,7 +45,8 @@ namespace AgentConsole.View
 
         /// <param name="models">The model control's state, or null when the agent has no model capability.</param>
         /// <param name="session">The chat list and send pipeline. The View sends and stops through it and never sees a transport.</param>
-        public void Bind(ConsoleReducer reducer, ModelController models = null, ChatSession session = null)
+        /// <param name="inventory">The MCP server list and its toggles, or null when the agent has none.</param>
+        public void Bind(ConsoleReducer reducer, ModelController models = null, ChatSession session = null, InventoryController inventory = null)
         {
             if (graph == null) graph = FindAnyObjectByType<GraphView>();
             if (rig == null) rig = FindAnyObjectByType<CameraRig>();
@@ -53,7 +54,7 @@ namespace AgentConsole.View
 
             graph.Bind(reducer);
             rig.Bind(graph);
-            ui.Bind(reducer, rig, models, session);
+            ui.Bind(reducer, rig, models, session, inventory);
             ui.ConnectionSaved += (t, u) => ConnectionSaved?.Invoke(t, u);
         }
 

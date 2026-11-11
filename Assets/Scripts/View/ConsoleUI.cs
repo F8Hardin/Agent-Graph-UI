@@ -99,7 +99,7 @@ namespace AgentConsole.View
             ConsoleSettings.ViewChanged -= ApplyUiScale;
         }
 
-        public void Bind(ConsoleReducer r, CameraRig rig, ModelController models = null, ChatSession session = null)
+        public void Bind(ConsoleReducer r, CameraRig rig, ModelController models = null, ChatSession session = null, InventoryController inventory = null)
         {
             _r = r;
             _rig = rig;
@@ -110,6 +110,7 @@ namespace AgentConsole.View
             _feed.Bind(r);
             r.PhaseChanged += _ => RefreshPhase();
             _model.Bind(r, models);
+            _settings.BindInventory(inventory);
             if (rig != null)
             {
                 rig.LockChanged += SetLockVisual;

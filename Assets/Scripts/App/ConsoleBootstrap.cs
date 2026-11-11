@@ -51,7 +51,7 @@ namespace AgentConsole.App
         private IChatStore _store;
         private ConsoleReducer _reducer;
         private ModelController _models;
-        private InventoryController _inventory; // live transport only: keeps the graph in step with EVA's /tools
+        private InventoryController _inventory; // keeps the graph and the Settings list in step with EVA's /tools (or the demo's sample)
         private EvaInventory _inventorySource;
         private string _lastInventoryError;
         private ChatSession _session;
@@ -62,7 +62,7 @@ namespace AgentConsole.App
         public IAgentTransport Transport => _transport;
         public ChatSession Session => _session;
 
-        /// <summary>The live inventory, or null for the offline replay. A UI that wants to show omitted (offline) servers reads it here.</summary>
+        /// <summary>The MCP server list and its toggles: EVA's live /tools, or the in-memory sample for the offline replay.</summary>
         public InventoryController Inventory => _inventory;
 
         private void Start()
@@ -94,8 +94,11 @@ namespace AgentConsole.App
             // A live agent starts with just the agent node and is filled from EVA's /tools below. Rejected: starting
             // from SampleInventory for every transport, which drew the demo's machines (a red desktop, a healthy
             // MacBook) over the real ones. Only the offline replay, which has no server to ask, keeps the sample.
+            // The demo's list is the sample plus a paused and an offline server (they are listed, not drawn: the graph shows
+            // only what is live), and it is served by an in-memory source so the Settings toggles work with no EVA.
+            ServerInfo[] sample = SampleInventory.EvaWithSettings();
             GraphModel graph = transportKind == TransportKind.Replay
-                ? new GraphModel(agentLabel, SampleInventory.Eva())
+                ? new GraphModel(agentLabel, sample)
                 : new GraphModel(agentLabel);
             _reducer = new ConsoleReducer(graph);
 
@@ -107,6 +110,9 @@ namespace AgentConsole.App
                 _transport = _pumpedReplay;
                 _store = SampleChats();
                 view.DefaultPrompt = ReplayPrompt;
+                // Completed tasks only: the browser build has no thread pool (see InMemoryInventory). A toggle made while the
+                // scripted run is playing changes the graph when the run ends, like a toggle against EVA does.
+                _inventory = new InventoryController(new InMemoryInventory(sample), graph);
             }
             else
             {
@@ -126,7 +132,7 @@ namespace AgentConsole.App
 
             // The send pipeline, queue and chat list: the one object the View talks to, so it never sees a transport.
             _session = new ChatSession(_reducer, _transport, _store, runInline: NoThreads);
-            view.Bind(_reducer, _models, _session);
+            view.Bind(_reducer, _models, _session, _inventory);
             _memory = new MemoryTracker(_reducer); // the session memory tree: grown from successful vault calls, cleared per chat
             view.BindMemory(_memory);
             if (_models.IsAvailable) _models.Refresh(); // async: a slow /models never holds a frame
