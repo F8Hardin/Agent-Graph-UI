@@ -20,6 +20,7 @@ namespace AgentConsole.View
         private bool _dragDirty;
         private Vector3 _dragOffset;
         private Vector3 _dragStartWorld;
+        private Vector3 _dragTargetWorld;
 
         /// <summary>A press and release on a node that never crossed the drag threshold. Argument is the index in GraphModel.Nodes order.</summary>
         public event Action<int> NodeClicked;
@@ -58,6 +59,7 @@ namespace AgentConsole.View
             _dragIndex = index;
             _dragOffset = nodeWorld - grabPointWorld; // keep the grab point under the cursor instead of jumping the centre to it
             _dragStartWorld = nodeWorld;
+            _dragTargetWorld = nodeWorld;
             _dragMoved = false;
             _layout.SetPinned(index, true);
             _views[index].SetSelected(true);
@@ -73,6 +75,23 @@ namespace AgentConsole.View
             Plane plane = new Plane(-cam.transform.forward, _views[_dragIndex].Root.position);
             if (!plane.Raycast(ray, out float enter)) return;
             DragToWorld(ray.GetPoint(enter) + _dragOffset);
+        }
+
+        /// <summary>Where the grabbed node is being asked to be, in world space. Starts at the node and moves by <see cref="DragBy"/>.</summary>
+        public Vector3 DragTargetWorld => _dragTargetWorld;
+
+        /// <summary>
+        /// Move the grabbed node by a world-space offset. This is what the camera rig uses: it turns the pointer's own
+        /// movement (and WASD) into an offset, so the node copies the pointer's motion. Rejected: placing the node where
+        /// the pointer ray meets a plane (DragTo), because the camera can move while a node is held, and then a pointer
+        /// that is not moving still sweeps the ray, the node chases it, the camera chases the node, and the grabbed
+        /// agent flew off into space.
+        /// </summary>
+        public void DragBy(Vector3 worldDelta)
+        {
+            if (_dragIndex < 0) return;
+            _dragTargetWorld += worldDelta;
+            DragToWorld(_dragTargetWorld);
         }
 
         /// <summary>Pin the grabbed node at a world position and re-heat the layout so the rest reacts.</summary>

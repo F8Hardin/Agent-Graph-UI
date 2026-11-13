@@ -40,6 +40,9 @@ namespace AgentConsole.View
         [SerializeField] private float panPerPixel = 0.0016f;
         [SerializeField] private float minDistance = 3f;
         [SerializeField] private float maxDistance = 90f;
+        [Tooltip("WASD speed, in view distances per second, so it feels the same zoomed in or out.")]
+        [SerializeField, Min(0.05f)] private float flySpeed = 0.6f;
+        [SerializeField, Min(1f)] private float flyBoost = 2.5f;
 
         [Header("Framing")]
         [SerializeField] private float fitMargin = 1.15f;
@@ -57,6 +60,7 @@ namespace AgentConsole.View
         private bool _dragging;
         private bool _panning;
         private bool _nodeDrag;
+        private Vector2 _lastPointer;
         private float _frameDist = 30f;   // the lock's own framing distance, before the user's zoom
         private float _zoomMul = 1f;      // the wheel's multiplier on top of it while locked
         private float _zoomUntil;
@@ -136,7 +140,9 @@ public void SetLocked(bool locked)
         private void OnFit()
         {
             _hasPath = false;
-            if (_locked) ApplyFit();
+            // Never re-frame while a node is held: the frame moving under a still pointer is half of the runaway
+            // described on GraphView.DragBy. The release re-applies whatever was asked for meanwhile.
+            if (_locked && !_nodeDrag) ApplyFit();
         }
 
         private void OnPath(Vector3 agent, Vector3 node, float radius)
@@ -145,7 +151,7 @@ public void SetLocked(bool locked)
             _pathA = agent;
             _pathB = node;
             _pathR = radius;
-            if (_locked) ApplyPath();
+            if (_locked && !_nodeDrag) ApplyPath();
         }
 
         private void ReapplyFocus()
@@ -223,6 +229,18 @@ public void SetLocked(bool locked)
                 ToggleLock();
             }
 
+            // WASD flies the view: W/S along the view direction, A/D sideways, Shift faster. Not while typing, and not
+            // with Ctrl held (Ctrl+A, Ctrl+S and friends are not movement). Pressing them takes the camera off the lock,
+            // because the lock owns the pivot and would pull the view straight back; L or the Lock button re-locks.
+            // Pivot and target move together so the view moves rigidly instead of easing behind the keys.
+            Vector3 fly = FlyStep(kb);
+            if (fly != Vector3.zero)
+            {
+                if (_locked) SetLocked(false);
+                _pivotT += fly;
+                _pivot += fly;
+            }
+
             Mouse m = Mouse.current;
             if (m == null) return;
 
@@ -235,6 +253,7 @@ public void SetLocked(bool locked)
                 {
                     _nodeDrag = true;
                     _dragging = false;
+                    _lastPointer = m.position.ReadValue();
                 }
                 else
                 {
@@ -254,12 +273,28 @@ public void SetLocked(bool locked)
             {
                 if (m.leftButton.isPressed)
                 {
-                    _graph.DragTo(PointerRay(m));
+                    // The node copies the pointer: the pointer's movement in pixels becomes the same movement in the
+                    // camera's plane at the node's depth. WASD carries the node with the view, so holding a node and
+                    // flying moves it through the scene with the camera following.
+                    Vector2 p = m.position.ReadValue();
+                    Vector2 d = p - _lastPointer;
+                    _lastPointer = p;
+                    Transform cam = viewCamera.transform;
+                    float depth = Mathf.Max(0.1f, Vector3.Dot(_graph.DragTargetWorld - cam.position, cam.forward));
+                    float worldPerPixel = 2f * depth * Mathf.Tan(viewCamera.fieldOfView * 0.5f * Mathf.Deg2Rad) / Mathf.Max(1, Screen.height);
+                    Vector3 move = (cam.right * d.x + cam.up * d.y) * worldPerPixel;
+                    if (fly != Vector3.zero)
+                    {
+                        Transform root = graphRoot != null ? graphRoot : transform;
+                        move += root.TransformVector(fly);
+                    }
+                    if (move != Vector3.zero) _graph.DragBy(move);
                 }
                 else
                 {
                     _graph.EndDrag();
                     _nodeDrag = false;
+                    if (_locked) ReapplyFocus(); // frame what moved, now that nothing is held
                 }
             }
             if (_nodeDrag || IslandRegistry.Grabbing || (!m.leftButton.isPressed && !m.rightButton.isPressed)) _dragging = false;
@@ -288,6 +323,19 @@ public void SetLocked(bool locked)
                 Vector3 shift = (rot * Vector3.right) * (-delta.x) + (rot * Vector3.up) * (-delta.y);
                 _pivotT += shift * (_dist * panPerPixel);
             }
+        }
+
+        /// <summary>This frame's WASD movement in graph-local space, or zero. Scaled by the view distance so it feels the same at any zoom.</summary>
+        private Vector3 FlyStep(Keyboard kb)
+        {
+            if (kb == null || ConsoleUI.IsTyping || kb.ctrlKey.isPressed) return Vector3.zero;
+            float x = (kb.dKey.isPressed ? 1f : 0f) - (kb.aKey.isPressed ? 1f : 0f);
+            float z = (kb.wKey.isPressed ? 1f : 0f) - (kb.sKey.isPressed ? 1f : 0f);
+            if (x == 0f && z == 0f) return Vector3.zero;
+            float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            float speed = Mathf.Max(minDistance, _dist) * flySpeed * (kb.shiftKey.isPressed ? flyBoost : 1f);
+            Quaternion rot = Quaternion.Euler(_pitch, _yaw, 0f);
+            return rot * (new Vector3(x, 0f, z).normalized * (speed * dt));
         }
 
         private Ray PointerRay(Mouse m)
