@@ -21,6 +21,13 @@ namespace AgentConsole.View
         private Vector3 _dragOffset;
         private Vector3 _dragStartWorld;
         private Vector3 _dragTargetWorld;
+        [Tooltip("Two clicks on the same node within this many seconds are a double-click.")]
+        [SerializeField, Min(0.1f)] private float doubleClickSeconds = 0.35f;
+        private int _lastClickIndex = -1;
+        private float _lastClickAt = -10f;
+
+        /// <summary>A node was double-clicked: (its centre in graph-local space, the radius that frames it and its children).</summary>
+        public event Action<Vector3, float> NodeFocusRequested;
 
         /// <summary>A press and release on a node that never crossed the drag threshold. Argument is the index in GraphModel.Nodes order.</summary>
         public event Action<int> NodeClicked;
@@ -138,8 +145,35 @@ namespace AgentConsole.View
         private void Click(int index)
         {
             Run(Op.Pulse, index, 1f, false);
-            Run(Op.Focus, index, 0f, false);
             NodeClicked?.Invoke(index);
+            // A single click only pulses. Moving the camera is the double-click's job: a view that jumps on every
+            // click makes it impossible to pick a node up without losing your place.
+            float now = Time.unscaledTime;
+            if (index == _lastClickIndex && now - _lastClickAt <= doubleClickSeconds)
+            {
+                _lastClickIndex = -1;
+                FocusNode(index);
+            }
+            else
+            {
+                _lastClickIndex = index;
+                _lastClickAt = now;
+            }
+        }
+
+        /// <summary>Ask the camera to frame a node together with the nodes hanging directly off it.</summary>
+        public void FocusNode(int index)
+        {
+            if (index < 0 || index >= _views.Count) return;
+            Vector3 centre = _views[index].Root.localPosition;
+            float radius = _views[index].Radius;
+            for (int e = 0; e < _linkSrc.Count; e++)
+            {
+                if (_linkSrc[e] != index) continue;
+                NodeView child = _views[_linkDst[e]];
+                radius = Mathf.Max(radius, (child.Root.localPosition - centre).magnitude + child.Radius);
+            }
+            NodeFocusRequested?.Invoke(centre, radius);
         }
     }
 }

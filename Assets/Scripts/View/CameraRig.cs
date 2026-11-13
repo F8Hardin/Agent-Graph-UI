@@ -46,6 +46,8 @@ namespace AgentConsole.View
         [Header("Framing")]
         [SerializeField] private float fitMargin = 1.15f;
         [SerializeField] private float pathPadding = 1.6f;
+        [Tooltip("Room left around a double-clicked node and its children, as a multiple of their radius.")]
+        [SerializeField, Min(1f)] private float focusMargin = 1.5f;
         [Tooltip("Smallest frame half-extent, as a fraction of the graph's bounding radius. Used when focusing the agent alone.")]
         [SerializeField, Range(0.2f, 1f)] private float minFrameFraction = 0.9f;
         [SerializeField] private float startYaw = 28f;
@@ -94,10 +96,12 @@ namespace AgentConsole.View
             {
                 _graph.PathFocused -= OnPath;
                 _graph.FitRequested -= OnFit;
+                _graph.NodeFocusRequested -= OnNodeFocus;
             }
             _graph = graph;
             _graph.PathFocused += OnPath;
             _graph.FitRequested += OnFit;
+            _graph.NodeFocusRequested += OnNodeFocus;
             OnFit();
             // Start already framed rather than sweeping in from an arbitrary distance.
             _pivot = _pivotT;
@@ -111,6 +115,7 @@ namespace AgentConsole.View
             {
                 _graph.PathFocused -= OnPath;
                 _graph.FitRequested -= OnFit;
+                _graph.NodeFocusRequested -= OnNodeFocus;
             }
         }
 
@@ -151,6 +156,18 @@ public void SetLocked(bool locked)
             _pathB = node;
             _pathR = radius;
             if (_locked && !_nodeDrag) ApplyPath();
+        }
+
+        /// <summary>
+        /// A double-click: centre the node and frame it with its children. Works locked or not. Locked, the next tool
+        /// call or Fit re-frames as usual, which is what the lock means; unlocked, the view stays here.
+        /// </summary>
+        private void OnNodeFocus(Vector3 centre, float radius)
+        {
+            _pivotT = centre;
+            _zoomMul = 1f;
+            _frameDist = FrameDistance(Mathf.Max(radius, 0.5f) * focusMargin);
+            _distT = Mathf.Clamp(_frameDist, minDistance, maxDistance);
         }
 
         private void ReapplyFocus()
