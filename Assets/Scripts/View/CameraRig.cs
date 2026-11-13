@@ -42,7 +42,6 @@ namespace AgentConsole.View
         [SerializeField] private float maxDistance = 90f;
         [Tooltip("WASD speed, in view distances per second, so it feels the same zoomed in or out.")]
         [SerializeField, Min(0.05f)] private float flySpeed = 0.6f;
-        [SerializeField, Min(1f)] private float flyBoost = 2.5f;
 
         [Header("Framing")]
         [SerializeField] private float fitMargin = 1.15f;
@@ -229,7 +228,7 @@ public void SetLocked(bool locked)
                 ToggleLock();
             }
 
-            // WASD flies the view: W/S along the view direction, A/D sideways, Shift faster. Not while typing, and not
+            // WASD flies the view: W/S along the view direction, A/D sideways, Space up, Shift down. Not while typing, and not
             // with Ctrl held (Ctrl+A, Ctrl+S and friends are not movement). Pressing them takes the camera off the lock,
             // because the lock owns the pivot and would pull the view straight back; L or the Lock button re-locks.
             // Pivot and target move together so the view moves rigidly instead of easing behind the keys.
@@ -237,6 +236,10 @@ public void SetLocked(bool locked)
             if (fly != Vector3.zero)
             {
                 if (_locked) SetLocked(false);
+                // Space also means "press the selected button" to the UI. While flying, nothing should be selected, or
+                // going up would click whatever button was used last.
+                EventSystem es = EventSystem.current;
+                if (es != null && es.currentSelectedGameObject != null) es.SetSelectedGameObject(null);
                 _pivotT += fly;
                 _pivot += fly;
             }
@@ -331,11 +334,15 @@ public void SetLocked(bool locked)
             if (kb == null || ConsoleUI.IsTyping || kb.ctrlKey.isPressed) return Vector3.zero;
             float x = (kb.dKey.isPressed ? 1f : 0f) - (kb.aKey.isPressed ? 1f : 0f);
             float z = (kb.wKey.isPressed ? 1f : 0f) - (kb.sKey.isPressed ? 1f : 0f);
-            if (x == 0f && z == 0f) return Vector3.zero;
+            // Up and down are the graph's own vertical, not the camera's: Space rises and Shift sinks the same way
+            // whichever way the view is pitched, as in a game's creative-mode flying.
+            float y = (kb.spaceKey.isPressed ? 1f : 0f) - (kb.shiftKey.isPressed ? 1f : 0f);
+            if (x == 0f && z == 0f && y == 0f) return Vector3.zero;
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
-            float speed = Mathf.Max(minDistance, _dist) * flySpeed * (kb.shiftKey.isPressed ? flyBoost : 1f);
+            float speed = Mathf.Max(minDistance, _dist) * flySpeed;
             Quaternion rot = Quaternion.Euler(_pitch, _yaw, 0f);
-            return rot * (new Vector3(x, 0f, z).normalized * (speed * dt));
+            Vector3 dir = rot * new Vector3(x, 0f, z) + Vector3.up * y;
+            return dir.sqrMagnitude > 1e-6f ? dir.normalized * (speed * dt) : Vector3.zero;
         }
 
         private Ray PointerRay(Mouse m)
