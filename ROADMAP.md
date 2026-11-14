@@ -160,6 +160,11 @@ Asked for 2026-11-09: a web build and an XR build, to test soon.
   public address and auth are noted for later scaling and ignored for now.
   This reopens the "Phones" decision below, which ruled WebGL out for
   mobile Safari; desktop browsers do not share that memory ceiling.
+  State 2026-11-13: it builds (about 2 minutes, 54 MB, compression Disabled) and is
+  served at port 8090 by the pm2 `agent-graph-web` static server from
+  `CloudSystems/AgentGraphWeb`. The page is the `AgentConsole` WebGL template
+  (`Assets/WebGLTemplates/AgentConsole`): full-window canvas, themed loading bar,
+  favicon. In headless Chromium it reaches EVA (`[web] inventory`, `[web] chats`).
 - **XR on Quest 3 (UNI-36).** OpenXR 1.19 and XR Interaction Toolkit 3.7 are
   already in the project. The Android build module is not installed, so a
   standalone headset build needs it added in Unity Hub; a PC-tethered OpenXR

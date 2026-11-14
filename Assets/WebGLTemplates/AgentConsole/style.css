@@ -1,0 +1,58 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+#unity-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  width: 100dvw;
+  height: 100dvh;
+  display: block;
+  background: #000;
+  touch-action: none;
+  outline: none;
+}
+
+/* Thin green-on-black loading bar across the middle of the screen. */
+#loader {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: min(240px, 60vw);
+  height: 2px;
+  transform: translate(-50%, -50%);
+  background: #0b2a17;
+}
+
+#bar {
+  width: 0;
+  height: 100%;
+  background: #3ddc7a;
+  box-shadow: 0 0 8px #3ddc7a;
+  transition: width 0.15s linear;
+}
+
+#error {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, 88vw);
+  padding: 16px 18px;
+  box-sizing: border-box;
+  color: #3ddc7a;
+  background: #000;
+  border: 1px solid #3ddc7a;
+  font: 14px/1.5 ui-monospace, Consolas, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+#error[hidden] { display: none; }

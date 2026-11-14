@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>Agent Graph Console</title>
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <div id="loader" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <div id="bar"></div>
+  </div>
+  <div id="error" role="alert" hidden></div>
+  <script>
+    (function () {
+      var canvas = document.getElementById("unity-canvas");
+      var loader = document.getElementById("loader");
+      var bar = document.getElementById("bar");
+      var errorBox = document.getElementById("error");
+
+      function showError(msg) {
+        loader.style.display = "none";
+        errorBox.textContent = "Agent Graph Console failed to load. " + msg;
+        errorBox.hidden = false;
+      }
+
+      var config = {
+        dataUrl: "Build/{{{ DATA_FILENAME }}}",
+        frameworkUrl: "Build/{{{ FRAMEWORK_FILENAME }}}",
+        codeUrl: "Build/{{{ CODE_FILENAME }}}",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+        productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+        productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+        // The canvas CSS size drives the render target (scaled by devicePixelRatio), so it follows window resizes and rotation.
+        matchWebGLToCanvasSize: true,
+        // Non-fatal messages from the loader go to the console only; the page shows no banners.
+        showBanner: function (msg, type) { (type === "error" ? console.error : console.warn)("[unity] " + msg); }
+      };
+
+      var script = document.createElement("script");
+      script.src = "Build/{{{ LOADER_FILENAME }}}";
+      script.onerror = function () { showError("Could not download Build/{{{ LOADER_FILENAME }}}."); };
+      script.onload = function () {
+        createUnityInstance(canvas, config, function (progress) {
+          var pct = Math.round(progress * 100);
+          bar.style.width = pct + "%";
+          loader.setAttribute("aria-valuenow", String(pct));
+        }).then(function () {
+          loader.style.display = "none";
+        }).catch(function (err) {
+          showError(String(err && err.message ? err.message : err));
+        });
+      };
+      document.body.appendChild(script);
+    })();
+  </script>
+</body>
+</html>
